@@ -1,0 +1,13 @@
+{
+  "video_path": "D:/Downloads/Resident Evil 4 - 2026-06-21 12-28-14 AM.mp4",
+  "timeline": {
+    "layers": {
+      "base": []
+    },
+    "mark_in_frame": null,
+    "mark_out_frame": null,
+    "cursor_frame": 0,
+    "fps": 59.99384482504948,
+    "total_frames": 6200
+  }
+}

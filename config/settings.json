@@ -1,0 +1,27 @@
+{
+    "target_size_mb": "50.0",
+    "encoder": "NVIDIA NVENC",
+    "codec": "H264",
+    "resolution": "Original",
+    "fps": "Original",
+    "quality": "Fastest",
+    "audio_bitrate": "64",
+    "output_format": "MP4",
+    "output_mode": "same_folder",
+    "custom_output_folder": "",
+    "naming_pattern": "{name}_compressed",
+    "ffmpeg_path": "",
+    "ffprobe_path": "",
+    "recent_sort_mode": "Date",
+    "watch_folders": [
+        "C:\\Users\\r3d1bruh\\Videos",
+        "C:\\Users\\r3d1bruh\\Downloads",
+        "C:\\Users\\r3d1bruh\\Documents",
+        "D:/Downloads"
+    ],
+    "preview_quality": "1/2",
+    "auto_open": false,
+    "verify_output": false,
+    "always_on_top": false,
+    "target_size": 25
+}
