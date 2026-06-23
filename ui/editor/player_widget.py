@@ -1,9 +1,53 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, QElapsedTimer, pyqtSignal, QUrl
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtCore import Qt, QTimer, QElapsedTimer, pyqtSignal, QUrl, QCoreApplication
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import QLabel, QPushButton, QHBoxLayout, QVBoxLayout, QWidget, QComboBox
+
+
+class LoadingSpinner(QWidget):
+    """A self-contained, smooth vector-drawn loading animation."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(50, 50)
+        # Prevent blocking clicks through the overlay loader
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.angle = 0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._rotate)
+        self.timer.setInterval(30)
+        self.hide()
+
+    def _rotate(self):
+        self.angle = (self.angle + 12) % 360
+        self.update()
+
+    def showEvent(self, event):
+        self.timer.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        self.timer.stop()
+        super().hideEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Draw a beautiful dark translucent circular background backing
+        painter.setBrush(QColor(15, 17, 21, 220))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(self.rect(), 12, 12)
+        
+        # Setup an elegant accent blue arc pen
+        pen = QPen(QColor("#3b82f6"))
+        pen.setWidth(4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        
+        rect = self.rect().adjusted(10, 10, -10, -10)
+        painter.drawArc(rect, -self.angle * 16, 100 * 16)
 
 
 class PreviewPlayerWidget(QWidget):
@@ -44,6 +88,9 @@ class PreviewPlayerWidget(QWidget):
             "background: #0f1115; color: #d7dce3; border: 1px solid #2a2f3a; border-radius: 8px;"
         )
         layout.addWidget(self.video_frame_label, stretch=1)
+
+        # Initialize and position our custom loader overlay centered inside video label container
+        self.loading_spinner = LoadingSpinner(self.video_frame_label)
 
         meta_row = QHBoxLayout()
         meta_row.setSpacing(8)
@@ -240,20 +287,43 @@ class PreviewPlayerWidget(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._apply_scaled_pixmap()
+        # Ensure loading spinner stays precisely centered on window resizing
+        if hasattr(self, "loading_spinner"):
+            self.loading_spinner.move(
+                (self.video_frame_label.width() - self.loading_spinner.width()) // 2,
+                (self.video_frame_label.height() - self.loading_spinner.height()) // 2
+            )
 
     def seek_to_frame(self, frame_index: int, play_audio: bool = False) -> None:
         if not self.engine:
             return
         frame_index = max(0, min(int(frame_index), max(0, self.engine.total_frames - 1)))
         self.pause()
+        
+        # CONDITIONAL LOADING: Check if the frame is already in memory cache.
+        is_cached = hasattr(self.engine, "_frame_cache") and frame_index in self.engine._frame_cache
+        
+        if not is_cached:
+            # Re-center and trigger immediate visual paint event before blocking for decoding
+            self.loading_spinner.move(
+                (self.video_frame_label.width() - self.loading_spinner.width()) // 2,
+                (self.video_frame_label.height() - self.loading_spinner.height()) // 2
+            )
+            self.loading_spinner.show()
+            QCoreApplication.processEvents()
+
         self.engine.seek_to_frame(frame_index)
         self._playback_start_frame = frame_index
         self._playback_clock.restart()
         self.show_frame(frame_index)
+        
         if self._media_path:
             self.media_player.setPosition(int((frame_index / max(self.engine.fps, 1.0)) * 1000))
             if play_audio:
                 self.play()
+                
+        if not is_cached:
+            self.loading_spinner.hide()
 
     def _apply_scaled_pixmap(self) -> None:
         if self._current_pixmap is None or self._current_pixmap.isNull():
@@ -280,7 +350,6 @@ class PreviewPlayerWidget(QWidget):
         self.frameChanged.emit(self.current_frame_index)
 
     def _on_playback_state_changed(self, state) -> None:
-        # Keep frame stepping in sync with the audio transport.
         if state == QMediaPlayer.PlaybackState.PlayingState:
             self.timer.start()
         else:

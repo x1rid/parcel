@@ -2,11 +2,26 @@
   "video_path": "D:/Downloads/Resident Evil 4 - 2026-06-21 12-28-14 AM.mp4",
   "timeline": {
     "layers": {
-      "base": []
+      "base": [
+        {
+          "id": "af298765-4069-45e1-8ffa-0ba7a4ed0fb3",
+          "layer": "base",
+          "start_frame": 2498,
+          "end_frame": 4150,
+          "fps": 59.99384482504948
+        },
+        {
+          "id": "35843a28-d58b-4655-93e6-fbf0edcde43c",
+          "layer": "base",
+          "start_frame": 4407,
+          "end_frame": 5039,
+          "fps": 59.99384482504948
+        }
+      ]
     },
     "mark_in_frame": null,
     "mark_out_frame": null,
-    "cursor_frame": 0,
+    "cursor_frame": 5039,
     "fps": 59.99384482504948,
     "total_frames": 6200
   }

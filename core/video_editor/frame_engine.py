@@ -60,6 +60,11 @@ class FrameAccurateEngine:
             self.current_frame_index = 0
             return
 
+        # OPTIMIZATION: If the target frame is already in the memory cache, avoid re-seeking entirely.
+        if frame_index in self._frame_cache:
+            self.current_frame_index = frame_index
+            return
+
         self.reset_playback()
         self._prepare_decoder(frame_index)
         self.current_frame_index = frame_index
@@ -122,12 +127,16 @@ class FrameAccurateEngine:
         target_pts = int(target_seconds / self.stream.time_base)
         self.container.seek(target_pts, stream=self.stream, backward=True, any_frame=False)
         decoder = self.container.decode(self.stream)
+        
         for decoded_index, frame in enumerate(decoder):
             pts_seconds = float(frame.pts * self.stream.time_base) if frame.pts is not None else decoded_index / max(self.fps, 1.0)
             candidate_frame = int(round(pts_seconds * self.fps)) if self.fps else decoded_index
-            array = frame.to_ndarray(format="rgb24")
-            self._store_frame(candidate_frame, array)
+            
+            # OPTIMIZATION: Only perform the highly expensive format conversion to ndarray
+            # for the target destination frame. Skip it for intermediate frames.
             if candidate_frame >= frame_index:
+                array = frame.to_ndarray(format="rgb24")
+                self._store_frame(candidate_frame, array)
                 self.current_frame_index = candidate_frame
                 if keep_decoder:
                     self._playback_decoder = decoder
