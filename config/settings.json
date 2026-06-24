@@ -20,8 +20,8 @@
         "D:/Downloads"
     ],
     "preview_quality": "1/2",
-    "auto_open": true,
-    "verify_output": true,
+    "auto_open": false,
+    "verify_output": false,
     "always_on_top": false,
     "target_size": 25
 }

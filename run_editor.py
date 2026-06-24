@@ -2,7 +2,7 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from ui.unified_window import UnifiedVideoSuiteWindow
+from compressor import UnifiedVideoSuiteWindow
 
 
 def main() -> None:
