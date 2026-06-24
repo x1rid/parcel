@@ -6,7 +6,7 @@ from pathlib import Path
 
 import av
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QImage, QPixmap, QColor
+from PyQt6.QtGui import QFont, QIcon, QImage, QPixmap, QColor, QPainter, QPainterPath, QPen, QBrush
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QLineEdit,
     QPushButton,
-    QStyle,
     QVBoxLayout,
     QWidget,
     QMessageBox
@@ -28,6 +28,33 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 THUMB_CACHE_DIR = PROJECT_ROOT / "temp" / "thumbnails"
 THUMB_WIDTH = 320
 THUMB_HEIGHT = 180
+
+
+def _make_icon(kind: str, size: int = 18) -> QIcon:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QPen(QColor("#9ca3af"), 1.75, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    if kind == "open":
+        painter.drawRoundedRect(3, 6, 12, 8, 2, 2)
+        painter.drawLine(5, 6, 7, 4)
+        painter.drawLine(7, 4, 11, 4)
+    elif kind == "refresh":
+        painter.drawArc(3, 3, 12, 12, 45 * 16, 270 * 16)
+        painter.drawLine(11, 3, 14, 3)
+        painter.drawLine(14, 3, 14, 6)
+    elif kind == "folder":
+        painter.drawRoundedRect(3, 5, 12, 8, 2, 2)
+        painter.drawLine(3, 7, 6, 7)
+        painter.drawLine(6, 5, 8, 7)
+    elif kind == "trash":
+        painter.drawRect(5, 6, 8, 8)
+        painter.drawLine(4, 6, 14, 6)
+        painter.drawLine(7, 4, 11, 4)
+    painter.end()
+    return QIcon(pixmap)
 
 
 def _thumbnail_cache_path(video_path: Path) -> Path:
@@ -121,22 +148,22 @@ class HomePage(QWidget):
         hero_layout.setContentsMargins(24, 24, 24, 24)
         hero_layout.setSpacing(12)
         title = QLabel("Drop Video Here")
-        title.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
-        title.setStyleSheet("color: #f5f7fa;")
+        title.setFont(QFont("abcNormal", 24, QFont.Weight.Medium))
+        title.setStyleSheet("color: #f3f4f6;")
         subtitle = QLabel("Open a clip, trim it, and send it straight into compression.")
         subtitle.setObjectName("Muted")
-        subtitle.setStyleSheet("color: #9aa5b1;")
+        subtitle.setStyleSheet("color: #9ca3af;")
         hero_layout.addWidget(title)
         hero_layout.addWidget(subtitle)
 
         button_row = QHBoxLayout()
         self.btn_open = QPushButton("Open Video")
-        self.btn_open.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.btn_open.setIcon(_make_icon("open"))
         self.btn_refresh = QPushButton("Refresh Recents")
-        self.btn_refresh.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.btn_refresh.setIcon(_make_icon("refresh"))
         
         self.scanning_label = QLabel("")
-        self.scanning_label.setStyleSheet("color: #9aa5b1;")
+        self.scanning_label.setStyleSheet("color: #9ca3af;")
         
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Date", "Name", "Size", "Duration"])
@@ -147,40 +174,22 @@ class HomePage(QWidget):
         button_row.addStretch(1)
         
         sort_label = QLabel("Sort")
-        sort_label.setStyleSheet("color: #f5f7fa;")
+        sort_label.setStyleSheet("color: #f3f4f6;")
         button_row.addWidget(sort_label)
         button_row.addWidget(self.sort_combo)
         hero_layout.addLayout(button_row)
-        layout.addWidget(self.hero)
 
-        # Watch Folders Section
-        folders_card = QFrame(objectName="PageCard")
-        folders_card.setStyleSheet("background-color: #1a1f2a; border: 1px solid #2b3442; border-radius: 8px;")
-        folders_layout = QVBoxLayout(folders_card)
-        folders_header = QHBoxLayout()
-        folders_label = QLabel("Watch Folders")
-        folders_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        folders_label.setStyleSheet("color: #f5f7fa; border: none;")
-        folders_header.addWidget(folders_label)
-        folders_header.addStretch(1)
-        
-        self.btn_add_folder = QPushButton("Add Folder")
-        self.btn_remove_folder = QPushButton("Remove")
-        folders_header.addWidget(self.btn_add_folder)
-        folders_header.addWidget(self.btn_remove_folder)
-        folders_layout.addLayout(folders_header)
-        
-        self.folders_list = QListWidget()
-        self.folders_list.setStyleSheet("background: #151a22; border: 1px solid #2b3442; color: #f5f7fa; border-radius: 4px;")
-        self.folders_list.setFixedHeight(100)
-        folders_layout.addWidget(self.folders_list)
-        layout.addWidget(folders_card)
+        self.manual_path = QLineEdit()
+        self.manual_path.setPlaceholderText("Paste absolute system file path here")
+        self.manual_path.setClearButtonEnabled(True)
+        hero_layout.addWidget(self.manual_path)
+        layout.addWidget(self.hero)
 
         # Recents Section
         recent_header = QHBoxLayout()
         recent_label = QLabel("Recent Videos")
-        recent_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        recent_label.setStyleSheet("color: #f5f7fa;")
+        recent_label.setFont(QFont("abcNormal", 14, QFont.Weight.Medium))
+        recent_label.setStyleSheet("color: #f3f4f6;")
         recent_header.addWidget(recent_label)
         recent_header.addStretch(1)
         layout.addLayout(recent_header)
@@ -195,21 +204,19 @@ class HomePage(QWidget):
         self.recent_list.setGridSize(QSize(THUMB_WIDTH + 24, THUMB_HEIGHT + 56))
         self.recent_list.setWordWrap(True)
         self.recent_list.setStyleSheet(
-            "QListWidget { background: #11151c; border: 1px solid #2b3442; color: #f5f7fa; border-radius: 6px; padding: 8px; }"
-            "QListWidget::item { padding: 6px; border-radius: 6px; }"
-            "QListWidget::item:selected { background: #264f78; }"
-            "QListWidget::item:hover { background: #1a2433; }"
+            "QListWidget { background: #161920; border: 1px solid #262b37; color: #f3f4f6; border-radius: 8px; padding: 8px; }"
+            "QListWidget::item { padding: 6px; border-radius: 8px; }"
+            "QListWidget::item:selected { background: #2b3242; }"
+            "QListWidget::item:hover { background: #1f242f; }"
         )
         layout.addWidget(self.recent_list, stretch=1)
 
         self.btn_open.clicked.connect(self._pick_video)
+        self.manual_path.returnPressed.connect(self._open_manual_path)
         self.btn_refresh.clicked.connect(self.refresh_recents)
         self.sort_combo.currentTextChanged.connect(self._sort_changed)
         self.recent_list.itemDoubleClicked.connect(self._open_recent_item)
         self.hero.dropped.connect(self.openVideoRequested.emit)
-        
-        self.btn_add_folder.clicked.connect(self._add_folder)
-        self.btn_remove_folder.clicked.connect(self._remove_folder)
 
     def _pick_video(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -229,44 +236,28 @@ class HomePage(QWidget):
         path = item.data(Qt.ItemDataRole.UserRole)
         if path and os.path.exists(path):
             self.openVideoRequested.emit(path)
-            
-    def _add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Watch")
-        if folder:
-            self.settings_manager.add_watch_folder(folder)
-            self.refresh_recents()
-            
-    def _remove_folder(self):
-        item = self.folders_list.currentItem()
-        if item:
-            path = item.data(Qt.ItemDataRole.UserRole)
-            self.settings_manager.remove_watch_folder(path)
-            self.refresh_recents()
+
+    def _open_manual_path(self) -> None:
+        path = self.manual_path.text().strip()
+        if path and os.path.exists(path):
+            self.openVideoRequested.emit(path)
+        else:
+            QMessageBox.information(self, "Path not found", "Please enter a valid absolute file path.")
 
     def refresh_recents(self) -> None:
         self.scanning_label.setText("Scanning...")
         self.repaint() # Force UI update
-        
-        self.folders_list.clear()
         self.recent_list.clear()
-        
-        watch_folders = self.settings_manager.get_watch_folders()
+
         entries = []
         seen_paths = set()
-        
-        for folder_path in watch_folders:
-            folder = Path(folder_path)
-            file_count = 0
+        default_folders = [Path.home() / "Videos", Path.home() / "Downloads", Path.home() / "Documents"]
+        for folder in default_folders:
             if folder.exists() and folder.is_dir():
                 for item in folder.iterdir():
                     if item.is_file() and item.suffix.lower() in VIDEO_EXTENSIONS and str(item) not in seen_paths:
                         seen_paths.add(str(item))
                         entries.append(self._describe_file(item))
-                        file_count += 1
-                        
-            f_item = QListWidgetItem(f"{folder_path} ({file_count} videos)")
-            f_item.setData(Qt.ItemDataRole.UserRole, folder_path)
-            self.folders_list.addItem(f_item)
 
         sort_mode = self.settings_manager.get("recent_sort_mode", "Date")
         if sort_mode == "Name":

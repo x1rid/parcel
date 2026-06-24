@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import re
+import threading
 from pathlib import Path
 from typing import Iterable, List
 
@@ -14,8 +16,23 @@ class FFmpegEditorEngine:
     def __init__(self, ffmpeg_path: str | None = None):
         self.ffmpeg_path = ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
 
-    def _run(self, args: List[str]) -> None:
-        subprocess.run(args, check=True)
+    def _run(self, args: List[str], cancel_event: threading.Event | None = None) -> None:
+        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            while True:
+                if cancel_event and cancel_event.is_set():
+                    process.terminate()
+                    raise RuntimeError("Export canceled.")
+                if process.poll() is not None:
+                    break
+                process.wait(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            if process.poll() is None:
+                process.wait()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, args)
 
     def _normalize_segments(self, timeline) -> List[Segment]:
         segments = timeline.flatten_layers() if hasattr(timeline, "flatten_layers") else list(timeline.keep_segments)
@@ -31,7 +48,7 @@ class FFmpegEditorEngine:
             return normalized
         return segments
 
-    def _extract_segment(self, input_file: str, output_file: str, segment: Segment, fast_mode: bool) -> None:
+    def _extract_segment(self, input_file: str, output_file: str, segment: Segment, fast_mode: bool, cancel_event: threading.Event | None = None) -> None:
         start_sec = segment.start_sec
         duration_sec = segment.duration_seconds
 
@@ -76,7 +93,42 @@ class FFmpegEditorEngine:
                 output_file,
             ]
 
-        self._run(cmd)
+        self._run(cmd, cancel_event=cancel_event)
+
+    def build_export_name(
+        self,
+        input_file: str,
+        *,
+        mode: str = "direct",
+        resolution: str | None = None,
+        codec: str | None = None,
+        fps: str | None = None,
+        lossless: bool = False,
+        output_format: str = "MP4",
+    ) -> str:
+        source = Path(input_file)
+        name = re.sub(r"[^A-Za-z0-9_-]+", "", source.stem) or "export"
+        if mode == "handoff":
+            return f"{name}_EditedForCompressor.mp4"
+        if mode == "direct":
+            return f"{name}_DirectExport.mp4"
+        parts = [name]
+        if resolution:
+            parts.append(resolution)
+        if codec:
+            parts.append(codec)
+        if lossless:
+            parts.append("Lossless")
+        if fps:
+            parts.append(f"{fps}FPS")
+        ext = {
+            "MP4": ".mp4",
+            "MKV": ".mkv",
+            "MOV": ".mov",
+            "AVI": ".avi",
+            "WEBM": ".webm",
+        }.get(output_format, ".mp4")
+        return "_".join(parts) + ext
 
     def export_timeline(self, input_file: str, output_file: str, timeline, fast_mode: bool = True) -> str:
         segments = self._normalize_segments(timeline)
@@ -123,4 +175,3 @@ class FFmpegEditorEngine:
             self._run(concat_cmd)
 
         return str(output_path)
-

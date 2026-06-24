@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import av
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtGui import QFont, QIcon, QPainter, QPixmap, QColor, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -33,105 +33,138 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QStackedWidget,
     QListWidget,
-    QListWidgetItem
+    QListWidgetItem,
+    QSizePolicy
 )
 
 from .media_profiles import AUDIO_BITRATES, ENCODERS, FORMATS, FPS_OPTIONS, QUALITIES, RESOLUTIONS, CODEC_MAP, get_resolution_scale
 from .settings_manager import SettingsManager
 from .home_page import HomePage
 from editor.steam_workspace import SteamStyleEditorWidget
+from editor.player_widget import PreviewPlayerWidget
+from editor.frame_engine import FrameAccurateEngine
+from editor.playback_controller import PlaybackController
 
 
 APP_QSS = """
-QMainWindow, QWidget {
-    background: #202020;
-    color: #ffffff;
-    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+QWidget {
+    background: #0d0e12;
+    color: #f3f4f6;
+    font-family: "abcNormal", "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-size: 16px;
+    letter-spacing: -0.16px;
+}
+QLabel {
+    background: transparent;
+}
+QMainWindow {
+    background: #0d0e12;
 }
 QFrame#Sidebar {
-    background: #1c1c1c;
-    border-right: 1px solid #333333;
+    background: #161920;
+    border-right: 1px solid #262b37;
 }
 QFrame#PageCard {
-    background: #2d2d2d;
-    border: 1px solid #3d3d3d;
-    border-radius: 4px;
+    background: #161920;
+    border: 1px solid #262b37;
+    border-radius: 12px;
 }
 QToolButton#NavButton {
-    color: #999999;
+    color: #9ca3af;
     background: transparent;
-    border: none;
-    padding: 10px 8px;
+    border: 1px solid transparent;
+    padding: 12px;
     text-align: left;
-    border-radius: 4px;
+    border-radius: 8px;
+    font-size: 16px;
 }
 QToolButton#NavButton:hover {
-    background: #2d2d2d;
-    color: #ffffff;
+    background: #2b3242;
+    color: #f3f4f6;
+    border-color: #262b37;
 }
 QToolButton#NavButton:checked {
-    color: #ffffff;
-    background: #264f78;
-    border-left: 3px solid #60cdff;
+    color: #f3f4f6;
+    background: #2b3242;
+    border-color: #2b3242;
+    border-left: 3px solid #6366f1;
 }
 QPushButton {
-    background: #2d2d2d;
-    color: #ffffff;
-    border: 1px solid #3d3d3d;
-    padding: 8px 12px;
-    border-radius: 4px;
+    background: #1f242f;
+    color: #f3f4f6;
+    border: 1px solid #262b37;
+    padding: 10px 14px;
+    border-radius: 6px;
 }
 QPushButton:hover {
-    background: #3d3d3d;
+    background: #2b3242;
+    border-color: #6366f1;
 }
 QPushButton:pressed {
-    background: #1c1c1c;
+    background: #161920;
+    border-color: #6366f1;
+}
+QPushButton:disabled {
+    color: #9ca3af;
+    background: #161920;
+    border-color: #262b37;
 }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTreeWidget, QListWidget {
-    background: #1c1c1c;
-    color: #ffffff;
-    border: 1px solid #3d3d3d;
-    border-radius: 4px;
-    padding: 6px 8px;
+    background: #1f242f;
+    color: #f3f4f6;
+    border: 1px solid #262b37;
+    border-radius: 8px;
+    padding: 10px 14px;
+    selection-background-color: #2b3242;
+    selection-color: #f3f4f6;
 }
 QTreeWidget::item:selected, QListWidget::item:selected {
-    background: #264f78;
+    background: #2b3242;
 }
 QHeaderView::section {
-    background: #2d2d2d;
-    color: #ffffff;
+    background: transparent;
+    color: #9ca3af;
     border: none;
-    padding: 6px 8px;
+    padding: 0px 12px 6px 12px;
 }
 QLabel#Muted {
-    color: #999999;
+    color: #9ca3af;
 }
 QProgressBar {
-    border: 1px solid #3d3d3d;
-    border-radius: 4px;
-    background: #1c1c1c;
+    border: 1px solid #262b37;
+    border-radius: 8px;
+    background: #1f242f;
     text-align: center;
-    color: #ffffff;
+    color: #f3f4f6;
 }
 QProgressBar::chunk {
-    background: #60cdff;
-    border-radius: 4px;
+    background: #6366f1;
+    border-radius: 8px;
 }
 QCheckBox {
     spacing: 8px;
+    color: #f3f4f6;
 }
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
 }
+QCheckBox::indicator:unchecked {
+    border: 1px solid #262b37;
+    background: #1f242f;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #6366f1;
+    background: #2b3242;
+}
 QScrollBar:vertical {
     border: none;
-    background: #202020;
+    background: #0d0e12;
     width: 8px;
-    margin: 0px 0px 0px 0px;
+    margin: 0px;
 }
 QScrollBar::handle:vertical {
-    background: #3d3d3d;
+    background: #262b37;
     min-height: 20px;
     border-radius: 4px;
 }
@@ -140,12 +173,12 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 }
 QScrollBar:horizontal {
     border: none;
-    background: #202020;
+    background: #0d0e12;
     height: 8px;
-    margin: 0px 0px 0px 0px;
+    margin: 0px;
 }
 QScrollBar::handle:horizontal {
-    background: #3d3d3d;
+    background: #262b37;
     min-width: 20px;
     border-radius: 4px;
 }
@@ -153,20 +186,20 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
 }
 QToolTip {
-    background: #2d2d2d;
-    border: 1px solid #3d3d3d;
-    color: #ffffff;
-    padding: 4px;
+    background: #161920;
+    border: 1px solid #262b37;
+    color: #f3f4f6;
+    padding: 4px 6px;
 }
 QMenu {
-    background: #2d2d2d;
-    border: 1px solid #3d3d3d;
+    background: #161920;
+    border: 1px solid #262b37;
 }
 QMenu::item:selected {
-    background: #3d3d3d;
+    background: #2b3242;
 }
 QSplitter::handle {
-    background: #3d3d3d;
+    background: #262b37;
     width: 2px;
 }
 """
@@ -212,21 +245,31 @@ def _quality_to_preset(quality: str) -> str:
         "Balanced": "medium",
         "Quality": "slow",
         "Best Quality": "veryslow",
+        "Lossless": "veryslow",
     }.get(quality, "medium")
 
 
 def _build_output_name(input_path: str, settings: dict) -> str:
     source = Path(input_path)
-    pattern = settings.get("naming_pattern", "{name}_compressed")
     name = source.stem
-    values = {
-        "name": name,
-        "size": settings.get("target_size_mb", "25"),
-        "codec": settings.get("codec", "H264"),
-        "format": settings.get("output_format", "MP4"),
-        "resolution": settings.get("resolution", "Original"),
-    }
-    stem = pattern.format(**values)
+    if settings.get("handoff_mode"):
+        stem = f"{name}_EditedForCompressor"
+    elif settings.get("export_mode") == "direct":
+        stem = f"{name}_DirectExport"
+    else:
+        parts = [name]
+        resolution = settings.get("resolution", "Original")
+        codec = settings.get("codec", "H264")
+        fps = settings.get("fps", "Original")
+        quality = settings.get("quality", "")
+        if resolution and resolution != "Original":
+            parts.append(resolution)
+        parts.append(codec)
+        if quality == "Lossless":
+            parts.append("Lossless")
+        if fps and fps != "Original":
+            parts.append(f"{fps}FPS")
+        stem = "_".join(parts)
     ext = {
         "MP4": ".mp4",
         "MKV": ".mkv",
@@ -280,7 +323,14 @@ class CompressionWorker(QThread):
 
         cmd.extend(["-c:v", codec])
 
-        if codec.startswith("lib"):
+        if quality == "Lossless":
+            if codec == "libx265":
+                cmd.extend(["-x265-params", "lossless=1"])
+            elif codec == "libaom-av1":
+                cmd.extend(["-crf", "0", "-b:v", "0"])
+            else:
+                cmd.extend(["-crf", "0"])
+        elif codec.startswith("lib"):
             cmd.extend(["-preset", _quality_to_preset(quality)])
             cmd.extend(["-b:v", f"{video_bitrate}k", "-maxrate", f"{int(video_bitrate * 1.2)}k", "-bufsize", f"{int(video_bitrate * 2)}k"])
         else:
@@ -341,63 +391,72 @@ class QueuePage(QWidget):
     def __init__(self, settings_manager: SettingsManager, parent=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
+        self.current_asset_path = ""
+        self._asset_engine = None
+        self._preview_controller = PlaybackController()
         self._setup_ui()
         self._load_settings()
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Queue")
-        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        subtitle = QLabel("Drop files, tune the target size, and compress with one click.")
+        title = QLabel("Compressor")
+        title.setFont(QFont("abcNormal", 16, QFont.Weight.Medium))
+        subtitle = QLabel("Load one asset, tune output settings, and compress it directly.")
         subtitle.setObjectName("Muted")
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(subtitle)
         root.addLayout(header)
 
-        body = QHBoxLayout()
+        body = QVBoxLayout()
         body.setSpacing(12)
         root.addLayout(body, stretch=1)
 
-        left = QVBoxLayout()
-        body.addLayout(left, stretch=3)
-
-        toolbar = QHBoxLayout()
-        self.btn_add = QPushButton("Add Files")
-        self.btn_add_folder = QPushButton("Add Folder")
-        self.btn_remove = QPushButton("Remove")
-        self.btn_clear = QPushButton("Clear")
-        self.btn_add.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
-        self.btn_add_folder.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder))
-        self.btn_remove.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        self.btn_clear.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton))
-        for button in (self.btn_add, self.btn_add_folder, self.btn_remove, self.btn_clear):
-            toolbar.addWidget(button)
-        toolbar.addStretch(1)
-        left.addLayout(toolbar)
-
-        self.queue_tree = QTreeWidget()
-        self.queue_tree.setHeaderLabels(["File", "Size", "Status"])
-        self.queue_tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
-        self.queue_tree.setAlternatingRowColors(True)
-        left.addWidget(self.queue_tree, stretch=1)
-
-        right = QVBoxLayout()
-        body.addLayout(right, stretch=2)
-
         card = QFrame(objectName="PageCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(10)
-        right.addWidget(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(12)
+        body.addWidget(card)
+
+        toolbar = QHBoxLayout()
+        self.btn_add = QPushButton("Add File")
+        self.btn_open_path = QPushButton("Load Path")
+        self.btn_clear = QPushButton("Clear")
+        self.btn_add.setIcon(_make_nav_icon("open"))
+        self.btn_open_path.setIcon(_make_nav_icon("open"))
+        self.btn_clear.setIcon(_make_nav_icon("reset"))
+        for button in (self.btn_add, self.btn_open_path, self.btn_clear):
+            button.setIconSize(QSize(18, 18))
+            toolbar.addWidget(button)
+        toolbar.addStretch(1)
+        card_layout.addLayout(toolbar)
+
+        self.asset_path = QLineEdit()
+        self.asset_path.setPlaceholderText("Paste or type a single video file path")
+        card_layout.addWidget(self.asset_path)
+
+        self.preview_card = QFrame(objectName="PageCard")
+        self.preview_card.setStyleSheet("background: #161920; border: 1px solid #262b37; border-radius: 12px;")
+        preview_layout = QVBoxLayout(self.preview_card)
+        preview_layout.setContentsMargins(12, 12, 12, 12)
+        preview_layout.setSpacing(12)
+        self.preview_empty = QLabel("No asset loaded")
+        self.preview_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_empty.setStyleSheet("color: #9ca3af; background: transparent; padding: 56px 0;")
+        self.preview_player = PreviewPlayerWidget(self._preview_controller)
+        self.preview_player.hide()
+        preview_layout.addWidget(self.preview_empty)
+        preview_layout.addWidget(self.preview_player)
+        card_layout.addWidget(self.preview_card)
 
         form = QGridLayout()
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(8)
-        card_layout.addLayout(form)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(12)
+        body.addLayout(form)
 
         self.target_size = QDoubleSpinBox()
         self.target_size.setRange(1, 10000)
@@ -420,7 +479,7 @@ class QueuePage(QWidget):
         self.fps.addItems(FPS_OPTIONS)
 
         self.quality = QComboBox()
-        self.quality.addItems(QUALITIES)
+        self.quality.addItems(QUALITIES + ["Lossless"])
 
         self.audio_bitrate = QComboBox()
         self.audio_bitrate.addItems(AUDIO_BITRATES)
@@ -449,21 +508,43 @@ class QueuePage(QWidget):
 
         self.auto_open = QCheckBox("Auto-open output folder")
         self.verify_output = QCheckBox("Verify output exists")
-        card_layout.addWidget(self.auto_open)
-        card_layout.addWidget(self.verify_output)
+        body.addWidget(self.auto_open)
+        body.addWidget(self.verify_output)
 
         self.btn_compress = QPushButton("Compress Queue")
-        card_layout.addWidget(self.btn_compress)
+        self.btn_compress.setStyleSheet("""
+            QPushButton {
+                background: #6366f1;
+                color: #f3f4f6;
+                border: 1px solid #6366f1;
+                padding: 12px 14px;
+                border-radius: 8px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background: #4f46e5;
+                border-color: #4f46e5;
+            }
+            QPushButton:pressed {
+                background: #4338ca;
+                border-color: #4338ca;
+            }
+            QPushButton:disabled {
+                background: #2b3242;
+                color: #9ca3af;
+                border-color: #262b37;
+            }
+        """)
+        body.addWidget(self.btn_compress)
 
         self.progress = QProgressBar()
         self.status = QLabel("Idle")
         self.status.setObjectName("Muted")
-        right.addWidget(self.progress)
-        right.addWidget(self.status)
+        body.addWidget(self.progress)
+        body.addWidget(self.status)
 
         self.btn_add.clicked.connect(self._add_files)
-        self.btn_add_folder.clicked.connect(self._add_folder)
-        self.btn_remove.clicked.connect(self._remove_selected)
+        self.btn_open_path.clicked.connect(self._load_from_path)
         self.btn_clear.clicked.connect(self.clear)
         self.btn_compress.clicked.connect(self.compressRequested.emit)
 
@@ -510,13 +591,10 @@ class QueuePage(QWidget):
         return dict(self.settings_manager.settings)
 
     def add_files(self, paths: list[str]) -> None:
-        existing = {self.queue_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) for i in range(self.queue_tree.topLevelItemCount())}
         for path in paths:
-            if not path or path in existing or not os.path.isfile(path):
-                continue
-            item = QTreeWidgetItem([os.path.basename(path), _format_size_mb(path), "Waiting"])
-            item.setData(0, Qt.ItemDataRole.UserRole, path)
-            self.queue_tree.addTopLevelItem(item)
+            if path and os.path.isfile(path):
+                self.load_asset(path)
+                break
         self.queueChanged.emit()
 
     def _add_files(self) -> None:
@@ -524,41 +602,48 @@ class QueuePage(QWidget):
         if paths:
             self.add_files(paths)
 
-    def _add_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Add Folder")
-        if not folder:
-            return
-        files = []
-        for entry in os.listdir(folder):
-            full_path = os.path.join(folder, entry)
-            if os.path.isfile(full_path) and entry.lower().endswith((".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v")):
-                files.append(full_path)
-        self.add_files(files)
-
-    def _remove_selected(self) -> None:
-        for item in self.queue_tree.selectedItems():
-            index = self.queue_tree.indexOfTopLevelItem(item)
-            self.queue_tree.takeTopLevelItem(index)
-        self.queueChanged.emit()
-
     def clear(self) -> None:
-        self.queue_tree.clear()
+        self.current_asset_path = ""
+        self.asset_path.clear()
+        self.preview_player.hide()
+        self.preview_empty.show()
+        self._preview_controller.stop()
+        self._asset_engine = None
         self.queueChanged.emit()
 
     def queue_paths(self) -> list[str]:
-        return [
-            self.queue_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole)
-            for i in range(self.queue_tree.topLevelItemCount())
-        ]
+        return [self.current_asset_path] if self.current_asset_path else []
 
     def update_row(self, index: int, status: str, percent: int | None = None) -> None:
-        item = self.queue_tree.topLevelItem(index)
-        if not item:
-            return
         if percent is None:
-            item.setText(2, status)
+            self.status.setText(status)
         else:
-            item.setText(2, f"{status} ({percent}%)")
+            self.status.setText(f"{status} ({percent}%)")
+
+    def _load_from_path(self) -> None:
+        path = self.asset_path.text().strip()
+        if path:
+            self.load_asset(path)
+
+    def load_asset(self, path: str) -> None:
+        if not path or not os.path.isfile(path):
+            self.status.setText("Invalid asset path")
+            return
+        self.current_asset_path = path
+        self.asset_path.setText(path)
+        try:
+            self._asset_engine = FrameAccurateEngine(path)
+            self.preview_player.set_engine(self._asset_engine)
+            self.preview_player.set_media_source(path)
+            self.preview_player.show_frame(0)
+            self.preview_player.show()
+            self.preview_empty.hide()
+            self.status.setText("Asset loaded")
+        except Exception as exc:
+            self.preview_player.hide()
+            self.preview_empty.show()
+            self._asset_engine = None
+            self.status.setText(f"Load failed: {exc}")
 
 
 class SettingsPage(QWidget):
@@ -608,24 +693,26 @@ class SettingsPage(QWidget):
         grid.addWidget(self.verify_output, len(rows) + 1, 0, 1, 2)
         grid.addWidget(self.always_on_top, len(rows) + 2, 0, 1, 2)
 
-        # Watch Folders
         folders_label = QLabel("Watch Folders")
-        folders_label.setFont(QFont("Segoe UI Variable", 12, QFont.Weight.Bold))
+        folders_label.setFont(QFont("abcNormal", 12, QFont.Weight.Medium))
+        folders_label.setStyleSheet("background: transparent; color: #f3f4f6;")
         grid.addWidget(folders_label, len(rows) + 3, 0, 1, 2)
-        
+
+        self.watch_folder_path = QLineEdit()
+        self.watch_folder_path.setPlaceholderText("Paste a folder path to add it")
+        self.btn_add_folder = QPushButton("Add Folder")
+        self.btn_remove_folder = QPushButton("Remove Folder")
+        add_row = QHBoxLayout()
+        add_row.addWidget(self.watch_folder_path, stretch=1)
+        add_row.addWidget(self.btn_add_folder)
+        add_row.addWidget(self.btn_remove_folder)
+        grid.addLayout(add_row, len(rows) + 4, 0, 1, 2)
+
         self.folders_list = QListWidget()
         self.folders_list.setFixedHeight(120)
         self._refresh_folders_list()
-        grid.addWidget(self.folders_list, len(rows) + 4, 0, 1, 2)
-        
-        btn_layout = QHBoxLayout()
-        self.btn_add_folder = QPushButton("Add Folder")
-        self.btn_remove_folder = QPushButton("Remove Folder")
-        btn_layout.addWidget(self.btn_add_folder)
-        btn_layout.addWidget(self.btn_remove_folder)
-        btn_layout.addStretch()
-        grid.addLayout(btn_layout, len(rows) + 5, 0, 1, 2)
-        
+        grid.addWidget(self.folders_list, len(rows) + 5, 0, 1, 2)
+
         self.btn_add_folder.clicked.connect(self._add_folder)
         self.btn_remove_folder.clicked.connect(self._remove_folder)
 
@@ -641,9 +728,10 @@ class SettingsPage(QWidget):
             self.folders_list.addItem(item)
             
     def _add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Add Watch Folder")
+        folder = self.watch_folder_path.text().strip() or QFileDialog.getExistingDirectory(self, "Add Watch Folder")
         if folder:
             self.settings_manager.add_watch_folder(folder)
+            self.watch_folder_path.clear()
             self._refresh_folders_list()
             
     def _remove_folder(self):
@@ -670,6 +758,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.resize(1600, 950)
         self.setAcceptDrops(True)
         self._worker = None
+        self._sidebar_expanded = True
         self._setup_ui()
         self._apply_theme()
 
@@ -699,24 +788,34 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         root_layout.setSpacing(0)
 
         sidebar = QFrame(objectName="Sidebar")
-        sidebar.setFixedWidth(132)
+        sidebar.setFixedWidth(220)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(10, 12, 10, 12)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(16, 16, 16, 16)
+        sidebar_layout.setSpacing(12)
 
-        brand = QLabel("Compressor")
-        brand.setFont(QFont("Segoe UI Variable", 14, QFont.Weight.Bold))
-        brand_sub = QLabel("Editor + queue")
-        brand_sub.setObjectName("Muted")
-        sidebar_layout.addWidget(brand)
-        sidebar_layout.addWidget(brand_sub)
+        self.btn_sidebar_toggle = QToolButton()
+        self.btn_sidebar_toggle.setText("⟨")
+        self.btn_sidebar_toggle.setToolTip("Collapse sidebar")
+        self.btn_sidebar_toggle.setFixedSize(32, 32)
+        self.btn_sidebar_toggle.clicked.connect(self.toggle_sidebar)
+        sidebar_layout.addWidget(self.btn_sidebar_toggle, alignment=Qt.AlignmentFlag.AlignRight)
+
+        self.sidebar_brand = QLabel("Compressor")
+        self.sidebar_brand.setFont(QFont("abcNormal", 16, QFont.Weight.Medium))
+        self.sidebar_brand_sub = QLabel("Editor + Compressor")
+        self.sidebar_brand_sub.setObjectName("Muted")
+        self.sidebar_brand.setStyleSheet("background: transparent;")
+        self.sidebar_brand_sub.setStyleSheet("background: transparent;")
+        sidebar_layout.addWidget(self.sidebar_brand)
+        sidebar_layout.addWidget(self.sidebar_brand_sub)
 
         self.nav_buttons = {}
+        self.nav_labels = {}
         for name, icon, page, tooltip in [
-            ("Home", self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), 0, "Dashboard & Recent Files"),
-            ("Editor", self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), 1, "Clip Editor"),
-            ("Queue", self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon), 2, "Compression Queue"),
-            ("Settings", self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView), 3, "App Settings"),
+            ("Home", _make_nav_icon("home"), 0, "Dashboard & Recent Files"),
+            ("Editor", _make_nav_icon("editor"), 1, "Clip Editor"),
+            ("Compressor", _make_nav_icon("compressor"), 2, "Compression Queue"),
+            ("Settings", _make_nav_icon("settings"), 3, "App Settings"),
         ]:
             button = QToolButton()
             button.setObjectName("NavButton")
@@ -725,16 +824,22 @@ class UnifiedVideoSuiteWindow(QMainWindow):
             button.setIcon(icon)
             button.setText(name)
             button.setToolTip(tooltip)
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setIconSize(QSize(18, 18))
+            button.setMinimumHeight(42)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.setStyleSheet(button.styleSheet() + "padding-left: 16px; padding-right: 16px; background: transparent;")
             button.clicked.connect(lambda checked=False, index=page, n=name: self._switch_page(index, n))
             sidebar_layout.addWidget(button)
             self.nav_buttons[name] = button
+            self.nav_labels[name] = name
 
         sidebar_layout.addStretch(1)
-        footer = QLabel("v4 editor")
-        footer.setObjectName("Muted")
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sidebar_layout.addWidget(footer)
+        self.sidebar_footer = QLabel("v4 editor")
+        self.sidebar_footer.setObjectName("Muted")
+        self.sidebar_footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sidebar_footer.setStyleSheet("background: transparent;")
+        sidebar_layout.addWidget(self.sidebar_footer)
         root_layout.addWidget(sidebar)
 
         self.pages = QStackedWidget()
@@ -758,6 +863,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.nav_buttons["Home"].setChecked(True)
         self.pages.setCurrentIndex(0)
         self.statusBar().showMessage("Ready")
+        self._sync_sidebar_state()
 
     def _switch_page(self, index, name):
         self.pages.setCurrentIndex(index)
@@ -765,14 +871,43 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         if index == 0:
             self.home_page.refresh_recents()
 
+    def toggle_sidebar(self) -> None:
+        self._sidebar_expanded = not self._sidebar_expanded
+        self._sync_sidebar_state()
+
+    def _sync_sidebar_state(self) -> None:
+        sidebar = self.findChild(QFrame, "Sidebar")
+        if sidebar:
+            sidebar.setFixedWidth(220 if self._sidebar_expanded else 64)
+        self.sidebar_brand.setVisible(self._sidebar_expanded)
+        self.sidebar_brand_sub.setVisible(self._sidebar_expanded)
+        self.sidebar_footer.setVisible(self._sidebar_expanded)
+        self.btn_sidebar_toggle.setText("⟨" if self._sidebar_expanded else "⟩")
+        self.btn_sidebar_toggle.setToolTip("Collapse sidebar" if self._sidebar_expanded else "Expand sidebar")
+        for name, button in self.nav_buttons.items():
+            if self._sidebar_expanded:
+                button.setText(self.nav_labels[name])
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                button.setIconSize(QSize(18, 18))
+                button.setMinimumHeight(42)
+                button.setToolTip(button.toolTip())
+            else:
+                button.setText("")
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                button.setIconSize(QSize(18, 18))
+                button.setMinimumHeight(42)
+
     def _sync_status(self) -> None:
-        count = self.queue_page.queue_tree.topLevelItemCount()
-        self.statusBar().showMessage(f"{count} file(s) in queue")
+        asset = self.queue_page.queue_paths()
+        if asset:
+            self.statusBar().showMessage(f"Loaded asset: {os.path.basename(asset[0])}")
+        else:
+            self.statusBar().showMessage("Ready")
 
     def start_queue_compression(self) -> None:
         jobs = self.queue_page.queue_paths()
         if not jobs:
-            QMessageBox.information(self, "Queue empty", "Add at least one video first.")
+            QMessageBox.information(self, "No asset loaded", "Load a single video first.")
             return
         self.queue_page.save_settings()
         self._worker = CompressionWorker(jobs, self.queue_page.current_settings())
@@ -811,15 +946,15 @@ class UnifiedVideoSuiteWindow(QMainWindow):
     def _on_worker_done(self) -> None:
         self.queue_page.btn_compress.setEnabled(True)
         self.queue_page.progress.setValue(0)
-        self.statusBar().showMessage("Compression queue complete")
+        self.statusBar().showMessage("Compression complete")
 
     def open_editor_page(self) -> None:
         self.nav_buttons["Editor"].setChecked(True)
         self._switch_page(1, "Editor")
 
     def open_queue_page(self) -> None:
-        self.nav_buttons["Queue"].setChecked(True)
-        self._switch_page(2, "Queue")
+        self.nav_buttons["Compressor"].setChecked(True)
+        self._switch_page(2, "Compressor")
 
     def open_home_page(self) -> None:
         self.nav_buttons["Home"].setChecked(True)
@@ -843,3 +978,59 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Export saved to temp — added to compressor queue: {os.path.basename(path)}"
         )
+def _make_nav_icon(kind: str, size: int = 18) -> QIcon:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QPen(QColor("#9ca3af"), 1.75, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    if kind == "home":
+        path = QPainterPath()
+        path.moveTo(3, 9)
+        path.lineTo(9, 4)
+        path.lineTo(15, 9)
+        path.lineTo(15, 15)
+        path.lineTo(9, 15)
+        path.lineTo(9, 11)
+        path.lineTo(7, 11)
+        path.lineTo(7, 15)
+        path.lineTo(3, 15)
+        path.closeSubpath()
+        painter.drawPath(path)
+    elif kind == "editor":
+        painter.drawRoundedRect(3, 4, 12, 10, 2, 2)
+        painter.drawLine(6, 4, 6, 14)
+        painter.drawLine(9, 7, 13, 7)
+    elif kind == "compressor":
+        painter.drawRect(4, 4, 10, 10)
+        painter.drawLine(4, 7, 14, 7)
+        painter.drawLine(4, 10, 14, 10)
+    elif kind == "settings":
+        painter.drawEllipse(6, 6, 6, 6)
+        painter.drawLine(9, 3, 9, 5)
+        painter.drawLine(9, 13, 9, 15)
+        painter.drawLine(3, 9, 5, 9)
+        painter.drawLine(13, 9, 15, 9)
+    elif kind == "open":
+        painter.drawRoundedRect(3, 6, 12, 8, 2, 2)
+        painter.drawLine(5, 6, 7, 4)
+        painter.drawLine(7, 4, 11, 4)
+    elif kind == "refresh":
+        painter.drawArc(3, 3, 12, 12, 30 * 16, 280 * 16)
+        painter.drawLine(12, 4, 14, 6)
+        painter.drawLine(12, 4, 11, 7)
+    elif kind == "folder":
+        painter.drawRoundedRect(3, 5, 12, 8, 2, 2)
+        painter.drawLine(3, 7, 6, 7)
+        painter.drawLine(6, 5, 8, 7)
+    elif kind == "trash":
+        painter.drawRect(5, 6, 8, 8)
+        painter.drawLine(4, 6, 14, 6)
+        painter.drawLine(7, 4, 11, 4)
+    elif kind == "reset":
+        painter.drawArc(3, 3, 12, 12, 45 * 16, 270 * 16)
+        painter.drawLine(11, 3, 14, 3)
+        painter.drawLine(14, 3, 14, 6)
+    painter.end()
+    return QIcon(pixmap)

@@ -52,6 +52,9 @@ class FrameTimeline:
         self.mark_in_frame = None
         self.mark_out_frame = None
 
+    def has_markers(self) -> bool:
+        return self.mark_in_frame is not None and self.mark_out_frame is not None
+
     def set_mark_out(self, frame_index: int) -> None:
         if self.mark_in_frame is None:
             return
@@ -161,6 +164,27 @@ class FrameTimeline:
         seconds = int(total_seconds % 60)
         frame_remainder = int(round((total_seconds - int(total_seconds)) * self.fps))
         return f"{minutes:02d}:{seconds:02d}:{frame_remainder:02d}"
+
+    def duration_timecode(self, start_frame: int, end_frame: int) -> str:
+        return self.timecode(max(0, int(end_frame) - int(start_frame)))
+
+    def snap_frame(self, frame_index: int, tolerance: int = 3) -> int:
+        """Snap to markers, segment boundaries, and timeline ends when close enough."""
+        if self.total_frames <= 0:
+            return 0
+
+        frame = _clamp_frame(frame_index, self.total_frames)
+        candidates = {0, self.total_frames}
+        if self.mark_in_frame is not None:
+            candidates.add(self.mark_in_frame)
+        if self.mark_out_frame is not None:
+            candidates.add(self.mark_out_frame)
+        for segment in self.flatten_layers():
+            candidates.add(segment.start_frame)
+            candidates.add(segment.end_frame)
+
+        closest = min(candidates, key=lambda candidate: abs(candidate - frame))
+        return closest if abs(closest - frame) <= max(0, int(tolerance)) else frame
 
     def reorder_segment(self, segment_id: str, new_index: int, layer: Optional[str] = None) -> bool:
         layer_name = layer or self.active_layer
