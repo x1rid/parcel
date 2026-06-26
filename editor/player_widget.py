@@ -56,17 +56,7 @@ class PreviewPlayerWidget(QWidget):
         video_layout.addWidget(self.video_frame_label)
         
         # HUD Overlays (positioned absolutely in resizeEvent)
-        self.hud_label = QLabel("00:00:00 | Frame 0", self.video_container)
-        self.hud_label.setStyleSheet("""
-            background-color: rgba(0, 0, 0, 160);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 13px;
-        """)
-        self.hud_label.hide()
-
+        # Quality button remains floating over video
         self.quality_btn = QToolButton(self.video_container)
         self.quality_btn.setText("⚙")
         self.quality_btn.setToolTip("Preview Quality")
@@ -103,14 +93,25 @@ class PreviewPlayerWidget(QWidget):
         self.quality_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         layout.addWidget(self.video_container, stretch=1)
+        
+        # Info bar below video
+        self.hud_label = QLabel("00:00:00 / 00:00:00  |  -- FPS")
+        self.hud_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hud_label.setStyleSheet("""
+            color: #7d848e;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
+        """)
+        self.hud_label.hide()
+        layout.addWidget(self.hud_label)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._apply_scaled_pixmap()
         
         # Reposition overlays
-        if hasattr(self, 'hud_label') and hasattr(self, 'quality_btn'):
-            self.hud_label.move(12, self.video_container.height() - self.hud_label.height() - 12)
+        if hasattr(self, 'quality_btn'):
             self.quality_btn.move(self.video_container.width() - self.quality_btn.width() - 12, 12)
 
     def _on_quality_changed(self, text: str) -> None:
@@ -332,17 +333,28 @@ class PreviewPlayerWidget(QWidget):
         
         # Update HUD
         timecode = "00:00:00"
+        total_timecode = "00:00:00"
+        fps_display = "-- FPS"
+        
         if self.engine:
-            # We can use our new format MM:SS:FF. Let's calculate it here.
             fps = self.engine.fps
             if fps > 0:
+                fps_display = f"{fps:.2f} FPS" if fps % 1 != 0 else f"{int(fps)} FPS"
+                # Current Time
                 total_seconds = self.current_frame_index / fps
                 minutes = int(total_seconds // 60)
                 seconds = int(total_seconds % 60)
                 frame_remainder = int(round((total_seconds - int(total_seconds)) * fps))
                 timecode = f"{minutes:02d}:{seconds:02d}:{frame_remainder:02d}"
                 
-        self.hud_label.setText(f"{timecode} | Frame {self.current_frame_index}")
+                # Total Time
+                dur_seconds = self.engine.total_frames / fps
+                t_minutes = int(dur_seconds // 60)
+                t_seconds = int(dur_seconds % 60)
+                t_frame_rem = int(round((dur_seconds - int(dur_seconds)) * fps))
+                total_timecode = f"{t_minutes:02d}:{t_seconds:02d}:{t_frame_rem:02d}"
+                
+        self.hud_label.setText(f"{timecode} / {total_timecode}   |   {fps_display}")
         
         self.frameChanged.emit(self.current_frame_index)
 

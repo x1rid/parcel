@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QRect, QSize, QEvent
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygon, QBrush, QPainterPath, QCursor, QIcon, QPixmap, QImage
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QFrame, QGridLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QFrame, QGridLayout, QApplication
 
 from .segment_resize_controller import SegmentResizeController
 from .timeline_zoom_controller import TimelineZoomController
@@ -47,80 +47,119 @@ def _make_icon(kind: str, size: int = 18) -> QIcon:
     return QIcon(pixmap)
 
 
-class SelectionActionBar(QFrame):
-    removeRequested = pyqtSignal()
-    segmentRequested = pyqtSignal()
+def timecode_to_hmsf(frame_index: int, fps: float) -> str:
+    if fps <= 0:
+        return "00:00:00:00"
+    total_seconds = frame_index / fps
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    frames = int(round((total_seconds - int(total_seconds)) * fps))
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
+
+
+class TimelineHeaderWidget(QFrame):
+    deleteRequested = pyqtSignal()
     replayRequested = pyqtSignal()
-    cancelRequested = pyqtSignal()
+    saveFrameRequested = pyqtSignal()
+    splitRequested = pyqtSignal()
+    duplicateRequested = pyqtSignal()
+    undoRequested = pyqtSignal()
+    redoRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("SelectionActionBar")
+        self.setObjectName("TimelineHeaderWidget")
         self.setStyleSheet("""
-            QFrame#SelectionActionBar {
-                background-color: #161920;
-                border: 1px solid #262b37;
-                border-radius: 12px;
+            QFrame#TimelineHeaderWidget {
+                background-color: #171A21;
+                border-bottom: 1px solid #252932;
+                border-radius: 8px 8px 0px 0px;
             }
-        """)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
-
-        self.btn_remove = self._create_button(_make_icon("trash"), "Remove Region")
-        self.btn_segment = self._create_button(_make_icon("segment"), "Keep Segment")
-        self.btn_replay = self._create_button(_make_icon("replay"), "Replay Selection")
-        self.btn_cancel = self._create_button(_make_icon("close"), "Cancel Selection")
-
-        layout.addWidget(self.btn_remove)
-        layout.addWidget(self.btn_segment)
-        layout.addWidget(self.btn_replay)
-        layout.addWidget(self.btn_cancel)
-        layout.addStretch(1)
-        
-        self.btn_remove.clicked.connect(self.removeRequested.emit)
-        self.btn_segment.clicked.connect(self.segmentRequested.emit)
-        self.btn_replay.clicked.connect(self.replayRequested.emit)
-        self.btn_cancel.clicked.connect(self.cancelRequested.emit)
-
-    def _create_button(self, icon: QIcon, tooltip: str) -> QToolButton:
-        btn = QToolButton()
-        btn.setIcon(icon)
-        btn.setIconSize(QSize(18, 18))
-        btn.setToolTip(tooltip)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedSize(36, 36)
-        btn.setStyleSheet("""
+            QLabel {
+                color: #7d848e;
+                font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+                font-size: 13px;
+            }
             QToolButton {
-                color: #f3f4f6;
-                background-color: #1f242f;
-                border: 1px solid #262b37;
-                border-radius: 8px;
+                color: #ffffff;
+                background-color: #252932;
+                border: 1px solid #252932;
+                border-radius: 6px;
+                font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 5px 10px;
             }
             QToolButton:hover {
-                background-color: #2b3242;
-                border-color: #6366f1;
+                background-color: #2e343f;
+                border-color: #d4af37;
             }
             QToolButton:pressed {
-                background-color: #161920;
-                border-color: #6366f1;
+                background-color: #1a1c23;
+            }
+            QToolButton:disabled {
+                color: #4e5460;
+                background-color: #171A21;
+                border-color: #252932;
             }
         """)
+        
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(12, 8, 12, 8)
+        main_layout.setSpacing(16)
+        
+        # Left Side: Inspector
+        self.inspector_label = QLabel("No segment selected. Click a segment to edit.")
+        self.inspector_label.setWordWrap(True)
+        main_layout.addWidget(self.inspector_label)
+        
+        main_layout.addStretch(1)
+        
+        # Right Side: Segment Tools Toolbar
+        self.tools_layout = QHBoxLayout()
+        self.tools_layout.setSpacing(6)
+        
+        self.btn_delete = self._create_btn("🗑 Delete", self.deleteRequested)
+        self.btn_replay = self._create_btn("↺ Replay", self.replayRequested)
+        self.btn_save_frame = self._create_btn("📸 Save Frame", self.saveFrameRequested)
+        self.btn_split = self._create_btn("✂ Split", self.splitRequested)
+        self.btn_duplicate = self._create_btn("📄 Duplicate", self.duplicateRequested)
+        self.btn_undo = self._create_btn("↶ Undo", self.undoRequested)
+        self.btn_redo = self._create_btn("↷ Redo", self.redoRequested)
+        
+        self.tools_layout.addWidget(self.btn_delete)
+        self.tools_layout.addWidget(self.btn_replay)
+        self.tools_layout.addWidget(self.btn_save_frame)
+        self.tools_layout.addWidget(self.btn_split)
+        self.tools_layout.addWidget(self.btn_duplicate)
+        self.tools_layout.addWidget(self.btn_undo)
+        self.tools_layout.addWidget(self.btn_redo)
+        
+        main_layout.addLayout(self.tools_layout)
+        
+        self.set_segment_selected(False)
+        
+    def _create_btn(self, text: str, signal: pyqtSignal) -> QToolButton:
+        btn = QToolButton()
+        btn.setText(text)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(signal.emit)
         return btn
-
-    def show_animated(self) -> None:
-        from PyQt6.QtCore import QPropertyAnimation
-        if hasattr(self, "_anim") and self._anim.state() == QPropertyAnimation.State.Running:
-            self._anim.stop()
         
-        self.setWindowOpacity(0.0)
-        self.show()
+    def set_segment_selected(self, selected: bool, start_tc: str = "", end_tc: str = "", dur_tc: str = "") -> None:
+        self.btn_delete.setEnabled(selected)
+        self.btn_replay.setEnabled(selected)
+        self.btn_save_frame.setEnabled(selected)
+        self.btn_split.setEnabled(selected)
+        self.btn_duplicate.setEnabled(selected)
         
-        self._anim = QPropertyAnimation(self, b"windowOpacity")
-        self._anim.setDuration(120)  # 100-150ms fade-in
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
+        if selected:
+            self.inspector_label.setText(
+                f"<b>Selected Segment</b> &nbsp;&nbsp;|&nbsp;&nbsp; Start: <font color='#ffffff'>{start_tc}</font> &nbsp;&nbsp; End: <font color='#ffffff'>{end_tc}</font> &nbsp;&nbsp; Duration: <font color='#d4af37'><b>{dur_tc}</b></font>"
+            )
+        else:
+            self.inspector_label.setText("No segment selected. Click a segment to edit.")
 
 
 class HoverPreviewPopup(QFrame):
@@ -133,52 +172,60 @@ class HoverPreviewPopup(QFrame):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
+        
         self.setStyleSheet("""
             QFrame#HoverPreviewPopup {
-                background-color: #1a1a1a;
-                border: 1px solid #27272a;
-                border-radius: 12px;
+                background-color: #171A21;
+                border: 1px solid #252932;
+                border-radius: 8px;
             }
             QLabel {
                 color: #ffffff;
+                font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
             }
-            QLabel#HoverPreviewTitle {
-                font-size: 13px;
+            QLabel#HoverTimecode {
+                font-size: 12px;
                 font-weight: 700;
             }
-            QLabel#HoverPreviewMeta {
+            QLabel#HoverFrame {
                 color: #7d848e;
                 font-size: 11px;
             }
         """)
 
         self.preview_label = QLabel()
-        self.preview_label.setFixedSize(180, 102)
+        self.preview_label.setFixedSize(140, 78)
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setStyleSheet("""
             QLabel {
-                background-color: #030303;
-                border: 1px solid #27272a;
-                border-radius: 8px;
+                background-color: #000000;
+                border: 1px solid #252932;
+                border-radius: 4px;
             }
         """)
 
-        self.title_label = QLabel("")
-        self.title_label.setObjectName("HoverPreviewTitle")
-        self.detail_label = QLabel("")
-        self.detail_label.setObjectName("HoverPreviewMeta")
-        self.meta_label = QLabel("")
-        self.meta_label.setObjectName("HoverPreviewMeta")
-        self.meta_label.setWordWrap(True)
+        self.timecode_label = QLabel("")
+        self.timecode_label.setObjectName("HoverTimecode")
+        
+        self.frame_label = QLabel("")
+        self.frame_label.setObjectName("HoverFrame")
 
-        layout = QGridLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(6)
-        layout.addWidget(self.preview_label, 0, 0, 3, 1)
-        layout.addWidget(self.title_label, 0, 1)
-        layout.addWidget(self.detail_label, 1, 1)
-        layout.addWidget(self.meta_label, 2, 1)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+        layout.addWidget(self.preview_label)
+        
+        text_layout = QHBoxLayout()
+        text_layout.addWidget(self.timecode_label)
+        text_layout.addStretch(1)
+        text_layout.addWidget(self.frame_label)
+        layout.addLayout(text_layout)
 
     def set_preview(self, data: HoverPreviewData) -> None:
         if data.pixmap is None or data.pixmap.isNull():
@@ -193,17 +240,8 @@ class HoverPreviewPopup(QFrame):
             self.preview_label.setPixmap(scaled)
             self.preview_label.setText("")
 
-        self.title_label.setText(data.title)
-        self.detail_label.setText(data.detail)
-        lines = [
-            f"Timestamp: {data.timestamp}",
-            f"Frame: {data.frame_number}",
-        ]
-        if data.duration:
-            lines.append(f"Duration: {data.duration}")
-        if data.excluded:
-            lines.append("Excluded from export")
-        self.meta_label.setText("\n".join(lines))
+        self.timecode_label.setText(data.timestamp)
+        self.frame_label.setText(f"Frame {data.frame_number}")
 
 
 class TimelineCanvas(QWidget):
@@ -215,25 +253,30 @@ class TimelineCanvas(QWidget):
         self.timeline = None
         self.cursor_frame = 0
         self.preview_engine = None
-        self.hover_preview = HoverPreviewPopup(self.window())
+        self.hover_preview = HoverPreviewPopup(None) # None parent means it's an overlay and doesn't participate in layout
         self.hover_preview.hide()
         self._hover_visible = False
+        self.selected_segment_id = None
+        self._drag_create_start: int | None = None
+        self._drag_create_end: int | None = None
+        self._drag_move_original: tuple[int, int] | None = None
         
         # Caching for thumbnails
         self.thumb_frames: list[tuple[int, object]] = []
-        self.thumb_cache_height = 40
+        self.thumb_cache_height = 110 # Increased ~35% from 80
         
         # Controllers
         self.resize_controller = SegmentResizeController()
         self.zoom_controller = TimelineZoomController()
         
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(140) # Increased to support taller thumbnails
         self.setMouseTracking(True)
         self.selection_actions = None
 
     def set_timeline(self, timeline) -> None:
         self.timeline = timeline
         self.thumb_frames = []
+        self.selected_segment_id = None
         self._hide_hover_preview()
         self.update()
 
@@ -246,7 +289,7 @@ class TimelineCanvas(QWidget):
 
         total = max(1, self.timeline.total_frames)
         width = max(1, self.width())
-        thumb_count = max(1, min(width // 80, total))
+        thumb_count = max(1, min(width // 110, total))
         sample_frames = [int(round(i * (total - 1) / max(1, thumb_count - 1))) for i in range(thumb_count)]
         
         original_frame = getattr(engine, "current_frame_index", 0)
@@ -272,6 +315,22 @@ class TimelineCanvas(QWidget):
     def _hide_hover_preview(self) -> None:
         self._hover_visible = False
         self.hover_preview.hide()
+
+    def _segment_at_pos(self, x: int) -> tuple[object | None, str]:
+        if not self.timeline:
+            return None, "empty"
+        MARGIN_X = 12
+        width = max(1, self.width() - 2 * MARGIN_X)
+        frame = self._x_to_frame(x - MARGIN_X, width)
+        segment = self.timeline.segment_at_frame(frame)
+        if not segment:
+            return None, "empty"
+        edge_tol = 10
+        if abs(frame - segment.start_frame) <= edge_tol:
+            return segment, "left_edge"
+        if abs(frame - segment.end_frame) <= edge_tol:
+            return segment, "right_edge"
+        return segment, "body"
 
     def _thumb_for_frame(self, frame_index: int) -> QPixmap | None:
         if not self.thumb_frames:
@@ -345,19 +404,30 @@ class TimelineCanvas(QWidget):
         offset = QPoint(24, -self.hover_preview.height() - 18)
         target = global_pos + offset
 
-        window = self.window().geometry()
-        target.setX(max(window.left() + 8, min(target.x(), window.right() - self.hover_preview.width() - 8)))
-        target.setY(max(window.top() + 8, min(target.y(), window.bottom() - self.hover_preview.height() - 8)))
+        # Constrain to screen bounds instead of window bounds, because popup is top-level (None parent)
+        screen = QApplication.primaryScreen().geometry()
+        target.setX(max(screen.left() + 8, min(target.x(), screen.right() - self.hover_preview.width() - 8)))
+        target.setY(max(screen.top() + 8, min(target.y(), screen.bottom() - self.hover_preview.height() - 8)))
+        
         self.hover_preview.move(target)
         if not self._hover_visible:
+            from PyQt6.QtCore import QPropertyAnimation
+            self.hover_preview.setWindowOpacity(0.0)
             self.hover_preview.show()
             self.hover_preview.raise_()
             self._hover_visible = True
+            
+            self._anim = QPropertyAnimation(self.hover_preview, b"windowOpacity")
+            self._anim.setDuration(120)
+            self._anim.setStartValue(0.0)
+            self._anim.setEndValue(1.0)
+            self._anim.start()
         else:
             self.hover_preview.raise_()
 
     def clear_selection(self) -> None:
         self.resize_controller.clear_selection()
+        self.selected_segment_id = None
         self._hide_hover_preview()
         self.selectionChanged.emit()
         self.update()
@@ -378,7 +448,7 @@ class TimelineCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = self.rect()
-        painter.fillRect(rect, QColor("#000000"))
+        painter.fillRect(rect, QColor("#0F1115"))
         
         MARGIN_X = 12
         MARGIN_Y = 12
@@ -391,7 +461,7 @@ class TimelineCanvas(QWidget):
         track_left = container_rect.left()
         
         painter.setClipRect(track_left, track_top, width, height)
-        painter.fillRect(track_left, track_top, width, height, QColor("#1a1a1a"))
+        painter.fillRect(track_left, track_top, width, height, QColor("#171A21"))
 
         if self.timeline and self.timeline.total_frames > 0:
             mark_in = getattr(self.timeline, "mark_in_frame", None)
@@ -406,33 +476,65 @@ class TimelineCanvas(QWidget):
                     painter.drawPixmap(x - thumb_width // 2, y, thumb)
 
             # Draw "Cut" regions (dimmed/hatched)
-            painter.fillRect(track_left, track_top, width, height, QColor(0, 0, 0, 150))
+            painter.fillRect(track_left, track_top, width, height, QColor(15, 17, 21, 160))
             
             # Draw "Keep" Segments
-            HANDLE_WIDTH = 8
-            for segment in self.timeline.keep_segments:
+            HANDLE_WIDTH = 10
+            for i, segment in enumerate(self.timeline.keep_segments):
                 x1 = self._frame_to_x(segment.start_frame, width) + track_left
                 x2 = self._frame_to_x(segment.end_frame, width) + track_left
                 seg_width = max(2, x2 - x1)
                 
-                # Segment Body
-                painter.fillRect(x1, track_top, seg_width, height, QColor(16, 185, 129, 80))
-                painter.setPen(QPen(QColor("#10b981"), 1))
-                painter.drawRect(x1, track_top, seg_width, height)
+                is_selected = (segment.id == self.selected_segment_id)
                 
-                # Left Handle
-                left_handle_rect = QRect(x1, track_top, HANDLE_WIDTH, height)
-                painter.fillRect(left_handle_rect, QColor("#27272a"))
-                painter.setPen(QPen(QColor("#ffffff"), 1))
-                painter.drawLine(x1 + 3, track_top + height//2 - 6, x1 + 3, track_top + height//2 + 6)
-                painter.drawLine(x1 + 5, track_top + height//2 - 6, x1 + 5, track_top + height//2 + 6)
+                colors = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6"]
+                base_color = QColor(colors[i % len(colors)])
                 
-                # Right Handle
-                right_handle_rect = QRect(x2 - HANDLE_WIDTH, track_top, HANDLE_WIDTH, height)
-                painter.fillRect(right_handle_rect, QColor("#27272a"))
-                painter.setPen(QPen(QColor("#ffffff"), 1))
-                painter.drawLine(x2 - 5, track_top + height//2 - 6, x2 - 5, track_top + height//2 + 6)
-                painter.drawLine(x2 - 3, track_top + height//2 - 6, x2 - 3, track_top + height//2 + 6)
+                if is_selected:
+                    fill_alpha = 180
+                    border_color = QColor("#d4af37")
+                    border_width = 2.0
+                    
+                    # Outer Glow for Selection
+                    glow_pen = QPen(QColor(212, 175, 55, 60), 6)
+                    painter.setPen(glow_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(x1 - 1, track_top + 1, seg_width + 2, height - 2, 8, 8)
+                else:
+                    fill_alpha = 90
+                    border_color = QColor(base_color.red(), base_color.green(), base_color.blue(), 160)
+                    border_width = 1.0
+                
+                from PyQt6.QtGui import QLinearGradient
+                gradient = QLinearGradient(x1, track_top, x1, track_top + height)
+                gradient.setColorAt(0.0, QColor(base_color.red(), base_color.green(), base_color.blue(), fill_alpha))
+                gradient.setColorAt(1.0, QColor(base_color.red(), base_color.green(), base_color.blue(), max(0, fill_alpha - 45)))
+                
+                painter.setBrush(QBrush(gradient))
+                painter.setPen(QPen(border_color, border_width))
+                painter.drawRoundedRect(x1, track_top + 2, seg_width, height - 4, 6, 6)
+                
+                # Resize Handles only visible on selected segment
+                if is_selected:
+                    # Left Handle
+                    left_handle_rect = QRect(x1, track_top + 2, HANDLE_WIDTH, height - 4)
+                    painter.setBrush(QBrush(QColor("#252932")))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(left_handle_rect, 6, 6)
+                    painter.fillRect(x1 + HANDLE_WIDTH // 2, track_top + 2, HANDLE_WIDTH // 2, height - 4, QColor("#252932"))
+                    painter.setPen(QPen(QColor("#ffffff"), 1.5))
+                    painter.drawLine(x1 + 3, track_top + height//2 - 6, x1 + 3, track_top + height//2 + 6)
+                    painter.drawLine(x1 + 6, track_top + height//2 - 6, x1 + 6, track_top + height//2 + 6)
+                    
+                    # Right Handle
+                    right_handle_rect = QRect(x2 - HANDLE_WIDTH, track_top + 2, HANDLE_WIDTH, height - 4)
+                    painter.setBrush(QBrush(QColor("#252932")))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(right_handle_rect, 6, 6)
+                    painter.fillRect(x2 - HANDLE_WIDTH, track_top + 2, HANDLE_WIDTH // 2, height - 4, QColor("#252932"))
+                    painter.setPen(QPen(QColor("#ffffff"), 1.5))
+                    painter.drawLine(x2 - 4, track_top + height//2 - 6, x2 - 4, track_top + height//2 + 6)
+                    painter.drawLine(x2 - 7, track_top + height//2 - 6, x2 - 7, track_top + height//2 + 6)
 
             # Draw Selection Region (if any)
             sel_bounds = self.resize_controller.get_selection_bounds()
@@ -441,9 +543,10 @@ class TimelineCanvas(QWidget):
                 sx1 = self._frame_to_x(start_f, width) + track_left
                 sx2 = self._frame_to_x(end_f, width) + track_left
                 sel_w = max(2, sx2 - sx1)
-                painter.fillRect(sx1, track_top, sel_w, height, QColor(59, 130, 246, 72))
-                painter.setPen(QPen(QColor("#3b82f6"), 1, Qt.PenStyle.DashLine))
-                painter.drawRect(sx1, track_top, sel_w, height)
+                
+                painter.setBrush(QBrush(QColor(59, 130, 246, 72)))
+                painter.setPen(QPen(QColor("#3b82f6"), 2, Qt.PenStyle.SolidLine))
+                painter.drawRoundedRect(sx1, track_top + 2, sel_w, height - 4, 6, 6)
 
             if mark_in is not None:
                 mx = self._frame_to_x(mark_in, width) + track_left
@@ -472,47 +575,49 @@ class TimelineCanvas(QWidget):
         painter.end()
 
     def _hit_test(self, x: int) -> tuple[str, str | None]:
-        """Returns (drag_mode, segment_id)."""
         if not self.timeline:
-            return "drag_select", None
-            
-        MARGIN_X = 12
-        width = max(1, self.width() - 2 * MARGIN_X)
-        HANDLE_PX = 8
-        
-        # Check handles first (they have priority)
-        for segment in self.timeline.keep_segments:
-            x1 = self._frame_to_x(segment.start_frame, width)
-            x2 = self._frame_to_x(segment.end_frame, width)
-            
-            if abs(x - x1) <= HANDLE_PX:
-                return "left_handle", segment.id
-            if abs(x - x2) <= HANDLE_PX:
-                return "right_handle", segment.id
-
-        # Empty space means playhead/select
-        return "drag_select", None
+            return "empty", None
+        segment, area = self._segment_at_pos(x)
+        if segment is None:
+            return "empty", None
+        return area, segment.id
 
     def mousePressEvent(self, event) -> None:
         if not self.timeline:
             return
             
         if event.button() == Qt.MouseButton.LeftButton:
-            if self.selection_actions:
-                self.selection_actions.setVisible(False)
             MARGIN_X = 12
             x = event.position().x() - MARGIN_X
             width = max(1, self.width() - 2 * MARGIN_X)
             frame = self._x_to_frame(x, width)
             
             drag_mode, target_id = self._hit_test(x)
-            
-            self.resize_controller.initiate_drag(self.timeline, frame, drag_mode, target_id)
-            self.grabMouse()
-            
-            if drag_mode == "drag_select":
+            if drag_mode == "empty":
+                self.selected_segment_id = None
+                self._drag_create_start = frame
+                self._drag_create_end = frame
                 self.cursorFrameChanged.emit(frame)
-            
+                self.selectionChanged.emit()
+                self.grabMouse()
+            else:
+                self.selected_segment_id = target_id
+                self.selectionChanged.emit()
+                if drag_mode in ("body", "left_edge", "right_edge"):
+                    mapped = {
+                        "body": "move_segment",
+                        "left_edge": "left_handle",
+                        "right_edge": "right_handle",
+                    }[drag_mode]
+                    self.resize_controller.initiate_drag(self.timeline, frame, mapped, target_id)
+                    self._drag_move_original = None
+                    if target_id:
+                        segment = self.timeline.segment_at_frame(frame)
+                        if segment and segment.id == target_id:
+                            self._drag_move_original = (segment.start_frame, segment.end_frame)
+                    self.grabMouse()
+                self.cursorFrameChanged.emit(frame)
+            self.update()
             event.accept()
             
         elif event.button() == Qt.MouseButton.MiddleButton:
@@ -527,13 +632,16 @@ class TimelineCanvas(QWidget):
         if self.resize_controller.is_dragging:
             frame = self._x_to_frame(event.position().x() - MARGIN_X, width)
             emit_frame, altered = self.resize_controller.update_drag(self.timeline, frame)
-            
-            if self.resize_controller.drag_mode == "drag_select":
-                self.cursorFrameChanged.emit(emit_frame)
-                
+            self.cursorFrameChanged.emit(emit_frame)
             if altered:
                 self.selectionChanged.emit()
                 self.update()
+            event.accept()
+        elif self._drag_create_start is not None:
+            frame = self._x_to_frame(event.position().x() - MARGIN_X, width)
+            self._drag_create_end = frame
+            self.cursorFrameChanged.emit(frame)
+            self.update()
             event.accept()
             
         elif event.buttons() & Qt.MouseButton.MiddleButton:
@@ -560,80 +668,27 @@ class TimelineCanvas(QWidget):
         self._hide_hover_preview()
         super().leaveEvent(event)
 
-    def _position_floating_toolbar(self) -> None:
-        if not hasattr(self, "floating_toolbar") or self.floating_toolbar is None:
-            return
-        sel = self.resize_controller.get_selection_bounds()
-        if not sel or sel[1] <= sel[0]:
-            return
-
-        self.floating_toolbar.adjustSize()
-        tw = self.floating_toolbar.width()
-        th = self.floating_toolbar.height()
-
-        MARGIN_X = 12
-        width = max(1, self.width() - 2 * MARGIN_X)
-        sx1 = self._frame_to_x(sel[0], width) + MARGIN_X
-        sx2 = self._frame_to_x(sel[1], width) + MARGIN_X
-        
-        # Calculate track rectangle relative to canvas
-        track_top = 12
-        track_height = self.height() - 24
-
-        # Map bounds to global coordinates
-        top_left = self.mapToGlobal(QPoint(sx1, track_top))
-        bottom_right = self.mapToGlobal(QPoint(sx2, track_top + track_height))
-        sel_rect_global = QRect(top_left, bottom_right)
-
-        # Get top-level window bounds
-        window = self.window()
-        window_rect = window.geometry()
-
-        gap = 8
-        sel_center_x = (sel_rect_global.left() + sel_rect_global.right()) // 2
-
-        # 1. Above Selection
-        x_above = sel_center_x - tw // 2
-        x_above = max(window_rect.left() + gap, min(x_above, window_rect.right() - gap - tw))
-        y_above = sel_rect_global.top() - th - gap
-        if y_above >= window_rect.top() + gap:
-            self.floating_toolbar.move(x_above, y_above)
-            return
-
-        # 2. Left of Selection
-        x_left = sel_rect_global.left() - tw - gap
-        y_left = (sel_rect_global.top() + sel_rect_global.bottom()) // 2 - th // 2
-        y_left = max(window_rect.top() + gap, min(y_left, window_rect.bottom() - gap - th))
-        if x_left >= window_rect.left() + gap:
-            self.floating_toolbar.move(x_left, y_left)
-            return
-
-        # 3. Right of Selection
-        x_right = sel_rect_global.right() + gap
-        y_right = (sel_rect_global.top() + sel_rect_global.bottom()) // 2 - th // 2
-        y_right = max(window_rect.top() + gap, min(y_right, window_rect.bottom() - gap - th))
-        if x_right + tw <= window_rect.right() - gap:
-            self.floating_toolbar.move(x_right, y_right)
-            return
-
-        # 4. Below Selection (or fallback to viewport bounds)
-        x_below = sel_center_x - tw // 2
-        x_below = max(window_rect.left() + gap, min(x_below, window_rect.right() - gap - tw))
-        y_below = sel_rect_global.bottom() + gap
-        y_below = max(window_rect.top() + gap, min(y_below, window_rect.bottom() - gap - th))
-        self.floating_toolbar.move(x_below, y_below)
-
     def mouseReleaseEvent(self, event) -> None:
-        self.releaseMouse()
         if self.resize_controller.is_dragging:
+            self.releaseMouse()
             mode = self.resize_controller.end_drag()
-            if mode == "drag_select" and self.selection_actions:
-                sel = self.resize_controller.get_selection_bounds()
-                if sel and sel[1] > sel[0]:
-                    self.selection_actions.setVisible(True)
-                else:
-                    self.resize_controller.clear_selection()
-                    self.selection_actions.setVisible(False)
+            if mode in {"move_segment", "left_handle", "right_handle"}:
+                self.timeline.normalize_layer()
+            self._drag_move_original = None
+            self.update()
+            event.accept()
+        elif self._drag_create_start is not None:
+            self.releaseMouse()
+            start = min(self._drag_create_start, self._drag_create_end or self._drag_create_start)
+            end = max(self._drag_create_start, self._drag_create_end or self._drag_create_start)
+            if start == end:
+                end = min(self.timeline.total_frames, start + 1)
+            self.timeline.add_segment(start, end)
+            self.timeline.normalize_layer()
+            self.selected_segment_id = self.timeline.keep_segments[-1].id if self.timeline.keep_segments else None
+            self._drag_create_start = None
+            self._drag_create_end = None
+            self.selectionChanged.emit()
             self.update()
             event.accept()
 
@@ -642,28 +697,70 @@ class TimelineCanvas(QWidget):
             return
             
         delta = event.angleDelta().y()
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            # Frame step
-            step = 1 if delta > 0 else -1
-            self.cursorFrameChanged.emit(self.cursor_frame + step)
-        else:
-            # Zoom
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            # Zoom timeline (future ready zoom support mapped to Ctrl + Wheel)
             MARGIN_X = 12
             width = max(1, self.width() - 2 * MARGIN_X)
             x = event.position().x() - MARGIN_X
             ratio = max(0.0, min(x / width, 1.0))
             self.zoom_controller.zoom_at(ratio, delta)
             self.update()
+        elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Frame step
+            step = 1 if delta > 0 else -1
+            self.cursorFrameChanged.emit(self.cursor_frame + step)
+        else:
+            # Default scroll or zoom modifier
+            super().wheelEvent(event)
             
         event.accept()
+
+    def set_mark_in_from_cursor(self) -> None:
+        if not self.timeline:
+            return
+        self.timeline.set_mark_in(self.cursor_frame)
+        if not self.timeline.keep_segments:
+            self.timeline.add_segment(self.cursor_frame, min(self.cursor_frame + 1, self.timeline.total_frames))
+            self.selected_segment_id = self.timeline.keep_segments[-1].id
+        else:
+            segment = self.timeline.segment_at_frame(self.cursor_frame)
+            if segment:
+                self.selected_segment_id = segment.id
+        self.selectionChanged.emit()
+        self.update()
+
+    def set_mark_out_from_cursor(self) -> None:
+        if not self.timeline:
+            return
+        if self.timeline.mark_in_frame is None and not self.timeline.keep_segments:
+            self.timeline.add_segment(0, max(1, self.cursor_frame))
+        elif self.timeline.mark_in_frame is None:
+            self.timeline.add_segment(0, max(1, self.cursor_frame))
+        else:
+            if self.timeline.mark_in_frame is not None:
+                start = self.timeline.mark_in_frame
+                end = self.cursor_frame
+                if start == end:
+                    end = min(self.timeline.total_frames, start + 1)
+                self.timeline.add_segment(min(start, end), max(start, end))
+                self.timeline.clear_mark_in()
+        self.timeline.normalize_layer()
+        self.selectionChanged.emit()
+        self.update()
 
 
 class TimelineWidget(QWidget):
     cursorFrameChanged = pyqtSignal(int)
-    # Forward toolbar signals
-    removeRequested = pyqtSignal(int, int)
-    segmentRequested = pyqtSignal(int, int)
-    replayRequested = pyqtSignal(int, int)
+    selectionChanged = pyqtSignal()
+    
+    # Forwarded Toolbar actions
+    deleteRequested = pyqtSignal()
+    replayRequested = pyqtSignal()
+    saveFrameRequested = pyqtSignal()
+    splitRequested = pyqtSignal()
+    duplicateRequested = pyqtSignal()
+    undoRequested = pyqtSignal()
+    redoRequested = pyqtSignal()
 
     def __init__(self, timeline, parent=None):
         super().__init__(parent)
@@ -673,57 +770,37 @@ class TimelineWidget(QWidget):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(0)
 
-        header = QHBoxLayout()
-        self.label_time = QLabel("00:00:00")
-        self.label_time.setStyleSheet("color: #f3f4f6; font-weight: 600; font-size: 14px;")
-        
-        self.state_label = QLabel("Ready")
-        self.state_label.setStyleSheet("color: #9ca3af;")
-        
-        header.addWidget(self.label_time)
-        header.addWidget(self.state_label)
-        header.addStretch(1)
-        layout.addLayout(header)
+        # Permanent top header toolbar and inspector
+        self.header_widget = TimelineHeaderWidget()
+        layout.addWidget(self.header_widget)
 
-        self.selection_actions = SelectionActionBar()
-        self.selection_actions.setVisible(False)
+        # Canvas
         self.canvas = TimelineCanvas()
-        self.canvas.selection_actions = self.selection_actions
-        self.selection_actions.removeRequested.connect(self._on_remove)
-        self.selection_actions.segmentRequested.connect(self._on_segment)
-        self.selection_actions.replayRequested.connect(self._on_replay)
-        self.selection_actions.cancelRequested.connect(self.canvas.clear_selection)
-        layout.addWidget(self.selection_actions)
-
         self.canvas.set_timeline(self.timeline)
-        self.canvas.cursorFrameChanged.connect(self.cursorFrameChanged.emit)
-        self.canvas.selectionChanged.connect(self.refresh_state)
         layout.addWidget(self.canvas)
-        self.cursorFrameChanged.connect(self.set_cursor_frame)
 
-    def _on_remove(self):
-        sel = self.canvas.resize_controller.get_selection_bounds()
-        if sel:
-            self.removeRequested.emit(sel[0], sel[1])
-            self.canvas.clear_selection()
+        # Forward Canvas signals
+        self.canvas.cursorFrameChanged.connect(self.cursorFrameChanged.emit)
+        self.canvas.selectionChanged.connect(self._on_canvas_selection_changed)
+        
+        # Connect toolbar signals
+        self.header_widget.deleteRequested.connect(self.deleteRequested.emit)
+        self.header_widget.replayRequested.connect(self.replayRequested.emit)
+        self.header_widget.saveFrameRequested.connect(self.saveFrameRequested.emit)
+        self.header_widget.splitRequested.connect(self.splitRequested.emit)
+        self.header_widget.duplicateRequested.connect(self.duplicateRequested.emit)
+        self.header_widget.undoRequested.connect(self.undoRequested.emit)
+        self.header_widget.redoRequested.connect(self.redoRequested.emit)
 
-    def _on_segment(self):
-        sel = self.canvas.resize_controller.get_selection_bounds()
-        if sel:
-            self.segmentRequested.emit(sel[0], sel[1])
-            self.canvas.clear_selection()
-            
-    def _on_replay(self):
-        sel = self.canvas.resize_controller.get_selection_bounds()
-        if sel:
-            self.replayRequested.emit(sel[0], sel[1])
+    def _on_canvas_selection_changed(self) -> None:
+        self.refresh_state()
+        self.selectionChanged.emit()
 
     def set_timeline(self, timeline) -> None:
         self.timeline = timeline
         self.canvas.set_timeline(timeline)
-        self.set_cursor_frame(0)
         self.refresh_state()
 
     def set_preview_source(self, engine) -> None:
@@ -732,27 +809,26 @@ class TimelineWidget(QWidget):
     def set_cursor_frame(self, frame_index: int) -> None:
         frame_index = max(0, int(frame_index))
         self.canvas.set_cursor_frame(frame_index)
-        
-        timecode = "00:00:00"
-        if self.timeline:
-            timecode = self.timeline.timecode(frame_index)
-            
-        self.label_time.setText(f"{timecode} | Frame {frame_index}")
         self.refresh_state()
 
     def refresh_state(self) -> None:
         if not self.timeline:
             return
             
-        sel = self.canvas.resize_controller.get_selection_bounds()
-        if sel:
-            self.state_label.setText(f"Selected: {sel[0]} - {sel[1]}")
-            self.selection_actions.setVisible(True)
-            return
+        # Verify selected segment still exists
+        seg_ids = [s.id for s in self.timeline.keep_segments]
+        if self.canvas.selected_segment_id not in seg_ids:
+            self.canvas.selected_segment_id = None
             
-        segment_count = len(self.timeline.keep_segments)
-        self.selection_actions.setVisible(False)
-        if segment_count:
-            self.state_label.setText(f"{segment_count} segment(s) ready")
+        header = self.header_widget
+        if self.canvas.selected_segment_id:
+            # Find the segment
+            selected_seg = next(s for s in self.timeline.keep_segments if s.id == self.canvas.selected_segment_id)
+            start_tc = timecode_to_hmsf(selected_seg.start_frame, self.timeline.fps)
+            end_tc = timecode_to_hmsf(selected_seg.end_frame, self.timeline.fps)
+            dur_tc = timecode_to_hmsf(selected_seg.duration_frames, self.timeline.fps)
+            header.set_segment_selected(True, start_tc, end_tc, dur_tc)
         else:
-            self.state_label.setText("Ready")
+            header.set_segment_selected(False)
+            
+        self.canvas.update()

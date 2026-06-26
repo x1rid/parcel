@@ -109,7 +109,7 @@ class FFmpegEditorEngine:
         source = Path(input_file)
         name = re.sub(r"[^A-Za-z0-9_-]+", "", source.stem) or "export"
         if mode == "handoff":
-            return f"{name}_EditedForCompressor.mp4"
+            return f"{name}_EditedForParcel.mp4"
         if mode == "direct":
             return f"{name}_DirectExport.mp4"
         parts = [name]
@@ -140,13 +140,13 @@ class FFmpegEditorEngine:
 
         if len(segments) == 1:
             segment = segments[0]
-            with tempfile.TemporaryDirectory(prefix="compressor_v4_export_") as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="parcel_v4_export_") as temp_dir:
                 temp_part = Path(temp_dir) / output_path.name
                 self._extract_segment(input_file, str(temp_part), segment, fast_mode)
                 shutil.move(str(temp_part), str(output_path))
             return str(output_path)
 
-        with tempfile.TemporaryDirectory(prefix="compressor_v4_export_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="parcel_v4_export_") as temp_dir:
             temp_dir_path = Path(temp_dir)
             part_paths: List[Path] = []
             for index, segment in enumerate(segments):

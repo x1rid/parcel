@@ -206,6 +206,34 @@ class FrameTimeline:
         layer_name = layer or self.active_layer
         self.layers[layer_name] = self._normalize_segments(self.layers.get(layer_name, []), self.total_frames)
 
+    def clamp_segment_to_neighbors(self, segment: Segment, exclude_id: Optional[str] = None) -> Segment:
+        start = _clamp_frame(segment.start_frame, self.total_frames)
+        end = _clamp_frame(segment.end_frame, self.total_frames)
+        if end <= start:
+            end = min(self.total_frames, start + 1)
+
+        others = [
+            seg
+            for seg in self.keep_segments
+            if seg.id != exclude_id
+        ]
+        left_limit = 0
+        right_limit = self.total_frames
+        for seg in others:
+            if seg.end_frame <= start and seg.end_frame > left_limit:
+                left_limit = seg.end_frame
+            if seg.start_frame >= end and seg.start_frame < right_limit:
+                right_limit = seg.start_frame
+        start = max(start, left_limit)
+        end = min(end, right_limit)
+        if end <= start:
+            if start >= right_limit:
+                start = max(left_limit, right_limit - 1)
+                end = right_limit
+            else:
+                end = min(self.total_frames, start + 1)
+        return Segment(start, end, segment.fps, id=segment.id, layer=segment.layer)
+
     def add_layer(self, name: str) -> None:
         self.layers.setdefault(name, [])
 

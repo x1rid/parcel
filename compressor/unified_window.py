@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import av
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QPointF
 from PyQt6.QtGui import QFont, QIcon, QPainter, QPixmap, QColor, QPen, QPainterPath, QBrush
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QAbstractItemView,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -62,11 +63,11 @@ QMainWindow {
 }
 QFrame#Sidebar {
     background: #161920;
-    border-right: 1px solid #262b37;
+    border-right: 1px solid #242936;
 }
 QFrame#PageCard {
     background: #161920;
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     border-radius: 12px;
 }
 QToolButton#NavButton {
@@ -78,10 +79,13 @@ QToolButton#NavButton {
     border-radius: 8px;
     font-size: 16px;
 }
+QToolButton#NavButton:flat {
+    background: transparent;
+}
 QToolButton#NavButton:hover {
     background: #2b3242;
     color: #f3f4f6;
-    border-color: #262b37;
+    border-color: #242936;
 }
 QToolButton#NavButton:checked {
     color: #f3f4f6;
@@ -92,7 +96,7 @@ QToolButton#NavButton:checked {
 QPushButton {
     background: #1f242f;
     color: #f3f4f6;
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     padding: 10px 14px;
     border-radius: 6px;
 }
@@ -107,16 +111,37 @@ QPushButton:pressed {
 QPushButton:disabled {
     color: #9ca3af;
     background: #161920;
-    border-color: #262b37;
+    border-color: #242936;
 }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTreeWidget, QListWidget {
     background: #1f242f;
     color: #f3f4f6;
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     border-radius: 8px;
     padding: 10px 14px;
     selection-background-color: #2b3242;
     selection-color: #f3f4f6;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox QAbstractItemView, QMenu {
+    background: #161920;
+    border: 1px solid #242936;
+    outline: none;
+    selection-background-color: #2b3242;
+    selection-color: #f3f4f6;
+}
+QComboBox QAbstractItemView {
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item, QMenu::item {
+    padding: 8px 12px;
+    border: none;
+}
+QComboBox QAbstractItemView::item:selected, QMenu::item:selected {
+    background: #2b3242;
 }
 QTreeWidget::item:selected, QListWidget::item:selected {
     background: #2b3242;
@@ -131,7 +156,7 @@ QLabel#Muted {
     color: #9ca3af;
 }
 QProgressBar {
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     border-radius: 8px;
     background: #1f242f;
     text-align: center;
@@ -150,7 +175,7 @@ QCheckBox::indicator {
     height: 16px;
 }
 QCheckBox::indicator:unchecked {
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     background: #1f242f;
 }
 QCheckBox::indicator:checked {
@@ -164,7 +189,7 @@ QScrollBar:vertical {
     margin: 0px;
 }
 QScrollBar::handle:vertical {
-    background: #262b37;
+    background: #242936;
     min-height: 20px;
     border-radius: 4px;
 }
@@ -178,7 +203,7 @@ QScrollBar:horizontal {
     margin: 0px;
 }
 QScrollBar::handle:horizontal {
-    background: #262b37;
+    background: #242936;
     min-width: 20px;
     border-radius: 4px;
 }
@@ -187,22 +212,32 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 QToolTip {
     background: #161920;
-    border: 1px solid #262b37;
+    border: 1px solid #242936;
     color: #f3f4f6;
     padding: 4px 6px;
 }
-QMenu {
-    background: #161920;
-    border: 1px solid #262b37;
-}
-QMenu::item:selected {
-    background: #2b3242;
-}
 QSplitter::handle {
-    background: #262b37;
+    background: #242936;
     width: 2px;
 }
+QToolButton#SidebarToggle {
+    background: #1f242f;
+    color: #f3f4f6;
+    border: 1px solid #242936;
+    border-radius: 16px;
+    padding: 0px;
+}
+QToolButton#SidebarToggle:hover {
+    background: #2b313e;
+    border-color: #6366f1;
+}
+QToolButton#SidebarToggle:pressed {
+    background: #161920;
+}
 """
+
+APP_NAME = "Parcel"
+APP_ICON_PATH = Path(__file__).resolve().parents[1] / "assets" / "icons" / "icon.png"
 
 
 def _format_size_mb(path: str) -> str:
@@ -249,11 +284,30 @@ def _quality_to_preset(quality: str) -> str:
     }.get(quality, "medium")
 
 
+def _make_chevron_icon(direction: str) -> QIcon:
+    pixmap = QPixmap(18, 18)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QPen(QColor("#f3f4f6"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    if direction == "left":
+        points = [QPointF(11.5, 3.5), QPointF(6.5, 9.0), QPointF(11.5, 14.5)]
+    else:
+        points = [QPointF(6.5, 3.5), QPointF(11.5, 9.0), QPointF(6.5, 14.5)]
+    path = QPainterPath()
+    path.moveTo(points[0])
+    path.lineTo(points[1])
+    path.lineTo(points[2])
+    painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
+
+
 def _build_output_name(input_path: str, settings: dict) -> str:
     source = Path(input_path)
     name = source.stem
     if settings.get("handoff_mode"):
-        stem = f"{name}_EditedForCompressor"
+        stem = f"{name}_EditedForParcel"
     elif settings.get("export_mode") == "direct":
         stem = f"{name}_DirectExport"
     else:
@@ -403,7 +457,7 @@ class QueuePage(QWidget):
         root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Compressor")
+        title = QLabel("Parcel")
         title.setFont(QFont("abcNormal", 16, QFont.Weight.Medium))
         subtitle = QLabel("Load one asset, tune output settings, and compress it directly.")
         subtitle.setObjectName("Muted")
@@ -412,15 +466,25 @@ class QueuePage(QWidget):
         header.addWidget(subtitle)
         root.addLayout(header)
 
-        body = QVBoxLayout()
+        body = QHBoxLayout()
         body.setSpacing(12)
         root.addLayout(body, stretch=1)
 
-        card = QFrame(objectName="PageCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 12, 12, 12)
-        card_layout.setSpacing(12)
-        body.addWidget(card)
+        left_panel = QFrame(objectName="PageCard")
+        left_panel.setMinimumWidth(760)
+        left_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setSpacing(12)
+        body.addWidget(left_panel, 65)
+
+        right_panel = QFrame(objectName="PageCard")
+        right_panel.setMinimumWidth(360)
+        right_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.setSpacing(12)
+        body.addWidget(right_panel, 35)
 
         toolbar = QHBoxLayout()
         self.btn_add = QPushButton("Add File")
@@ -433,14 +497,14 @@ class QueuePage(QWidget):
             button.setIconSize(QSize(18, 18))
             toolbar.addWidget(button)
         toolbar.addStretch(1)
-        card_layout.addLayout(toolbar)
+        left_layout.addLayout(toolbar)
 
         self.asset_path = QLineEdit()
         self.asset_path.setPlaceholderText("Paste or type a single video file path")
-        card_layout.addWidget(self.asset_path)
+        left_layout.addWidget(self.asset_path)
 
         self.preview_card = QFrame(objectName="PageCard")
-        self.preview_card.setStyleSheet("background: #161920; border: 1px solid #262b37; border-radius: 12px;")
+        self.preview_card.setStyleSheet("background: #161920; border: 1px solid #242936; border-radius: 12px;")
         preview_layout = QVBoxLayout(self.preview_card)
         preview_layout.setContentsMargins(12, 12, 12, 12)
         preview_layout.setSpacing(12)
@@ -451,12 +515,12 @@ class QueuePage(QWidget):
         self.preview_player.hide()
         preview_layout.addWidget(self.preview_empty)
         preview_layout.addWidget(self.preview_player)
-        card_layout.addWidget(self.preview_card)
+        left_layout.addWidget(self.preview_card, stretch=1)
 
         form = QGridLayout()
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(12)
-        body.addLayout(form)
+        right_layout.addLayout(form)
 
         self.target_size = QDoubleSpinBox()
         self.target_size.setRange(1, 10000)
@@ -508,8 +572,8 @@ class QueuePage(QWidget):
 
         self.auto_open = QCheckBox("Auto-open output folder")
         self.verify_output = QCheckBox("Verify output exists")
-        body.addWidget(self.auto_open)
-        body.addWidget(self.verify_output)
+        right_layout.addWidget(self.auto_open)
+        right_layout.addWidget(self.verify_output)
 
         self.btn_compress = QPushButton("Compress Queue")
         self.btn_compress.setStyleSheet("""
@@ -535,13 +599,13 @@ class QueuePage(QWidget):
                 border-color: #262b37;
             }
         """)
-        body.addWidget(self.btn_compress)
+        right_layout.addWidget(self.btn_compress)
 
         self.progress = QProgressBar()
         self.status = QLabel("Idle")
         self.status.setObjectName("Muted")
-        body.addWidget(self.progress)
-        body.addWidget(self.status)
+        right_layout.addWidget(self.progress)
+        right_layout.addWidget(self.status)
 
         self.btn_add.clicked.connect(self._add_files)
         self.btn_open_path.clicked.connect(self._load_from_path)
@@ -710,6 +774,25 @@ class SettingsPage(QWidget):
 
         self.folders_list = QListWidget()
         self.folders_list.setFixedHeight(120)
+        self.folders_list.setFrameShape(QFrame.Shape.NoFrame)
+        self.folders_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.folders_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.folders_list.setStyleSheet("""
+            QListWidget {
+                background: #161920;
+                border: 1px solid #242936;
+                border-radius: 8px;
+                padding: 0px;
+            }
+            QListWidget::item {
+                background: transparent;
+                border: none;
+                padding: 8px 10px;
+            }
+            QListWidget::item:selected {
+                background: #2b3242;
+            }
+        """)
         self._refresh_folders_list()
         grid.addWidget(self.folders_list, len(rows) + 5, 0, 1, 2)
 
@@ -754,7 +837,8 @@ class UnifiedVideoSuiteWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings_manager = SettingsManager()
-        self.setWindowTitle("Video Compressor + Editor")
+        self.setWindowTitle(APP_NAME)
+        self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.resize(1600, 950)
         self.setAcceptDrops(True)
         self._worker = None
@@ -785,24 +869,27 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.setCentralWidget(root)
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        root_layout.setSpacing(24)
 
-        sidebar = QFrame(objectName="Sidebar")
+        self.sidebar = QFrame(objectName="Sidebar")
+        sidebar = self.sidebar
         sidebar.setFixedWidth(220)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(16, 16, 16, 16)
         sidebar_layout.setSpacing(12)
 
-        self.btn_sidebar_toggle = QToolButton()
-        self.btn_sidebar_toggle.setText("⟨")
+        self.btn_sidebar_toggle = QToolButton(sidebar)
+        self.btn_sidebar_toggle.setObjectName("SidebarToggle")
+        self.btn_sidebar_toggle.setIcon(_make_chevron_icon("left"))
+        self.btn_sidebar_toggle.setIconSize(QSize(18, 18))
         self.btn_sidebar_toggle.setToolTip("Collapse sidebar")
         self.btn_sidebar_toggle.setFixedSize(32, 32)
         self.btn_sidebar_toggle.clicked.connect(self.toggle_sidebar)
-        sidebar_layout.addWidget(self.btn_sidebar_toggle, alignment=Qt.AlignmentFlag.AlignRight)
+        self.btn_sidebar_toggle.raise_()
 
-        self.sidebar_brand = QLabel("Compressor")
+        self.sidebar_brand = QLabel("Parcel")
         self.sidebar_brand.setFont(QFont("abcNormal", 16, QFont.Weight.Medium))
-        self.sidebar_brand_sub = QLabel("Editor + Compressor")
+        self.sidebar_brand_sub = QLabel("Video editor and export suite")
         self.sidebar_brand_sub.setObjectName("Muted")
         self.sidebar_brand.setStyleSheet("background: transparent;")
         self.sidebar_brand_sub.setStyleSheet("background: transparent;")
@@ -814,7 +901,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         for name, icon, page, tooltip in [
             ("Home", _make_nav_icon("home"), 0, "Dashboard & Recent Files"),
             ("Editor", _make_nav_icon("editor"), 1, "Clip Editor"),
-            ("Compressor", _make_nav_icon("compressor"), 2, "Compression Queue"),
+            ("Parcel", _make_nav_icon("parcel"), 2, "Export Queue"),
             ("Settings", _make_nav_icon("settings"), 3, "App Settings"),
         ]:
             button = QToolButton()
@@ -835,7 +922,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
             self.nav_labels[name] = name
 
         sidebar_layout.addStretch(1)
-        self.sidebar_footer = QLabel("v4 editor")
+        self.sidebar_footer = QLabel("Parcel v4")
         self.sidebar_footer.setObjectName("Muted")
         self.sidebar_footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sidebar_footer.setStyleSheet("background: transparent;")
@@ -864,6 +951,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.pages.setCurrentIndex(0)
         self.statusBar().showMessage("Ready")
         self._sync_sidebar_state()
+        self._position_sidebar_toggle()
 
     def _switch_page(self, index, name):
         self.pages.setCurrentIndex(index)
@@ -882,7 +970,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.sidebar_brand.setVisible(self._sidebar_expanded)
         self.sidebar_brand_sub.setVisible(self._sidebar_expanded)
         self.sidebar_footer.setVisible(self._sidebar_expanded)
-        self.btn_sidebar_toggle.setText("⟨" if self._sidebar_expanded else "⟩")
+        self.btn_sidebar_toggle.setIcon(_make_chevron_icon("left" if self._sidebar_expanded else "right"))
         self.btn_sidebar_toggle.setToolTip("Collapse sidebar" if self._sidebar_expanded else "Expand sidebar")
         for name, button in self.nav_buttons.items():
             if self._sidebar_expanded:
@@ -890,12 +978,35 @@ class UnifiedVideoSuiteWindow(QMainWindow):
                 button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
                 button.setIconSize(QSize(18, 18))
                 button.setMinimumHeight(42)
+                button.setMinimumWidth(0)
+                button.setMaximumWidth(16777215)
+                button.setMaximumHeight(16777215)
                 button.setToolTip(button.toolTip())
             else:
                 button.setText("")
                 button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                 button.setIconSize(QSize(18, 18))
+                button.setMinimumSize(40, 40)
+                button.setMaximumSize(40, 40)
+                button.setToolTip(button.toolTip())
+        if self._sidebar_expanded:
+            for button in self.nav_buttons.values():
                 button.setMinimumHeight(42)
+                button.setMinimumWidth(0)
+                button.setMaximumWidth(16777215)
+                button.setMaximumHeight(16777215)
+        self._position_sidebar_toggle()
+
+    def _position_sidebar_toggle(self) -> None:
+        if not hasattr(self, "sidebar") or self.sidebar is None or not hasattr(self, "btn_sidebar_toggle"):
+            return
+        x = max(0, self.sidebar.width() - self.btn_sidebar_toggle.width() // 2 - 1)
+        y = 20
+        self.btn_sidebar_toggle.move(x, y)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_sidebar_toggle()
 
     def _sync_status(self) -> None:
         asset = self.queue_page.queue_paths()
@@ -953,8 +1064,8 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self._switch_page(1, "Editor")
 
     def open_queue_page(self) -> None:
-        self.nav_buttons["Compressor"].setChecked(True)
-        self._switch_page(2, "Compressor")
+        self.nav_buttons["Parcel"].setChecked(True)
+        self._switch_page(2, "Parcel")
 
     def open_home_page(self) -> None:
         self.nav_buttons["Home"].setChecked(True)
@@ -976,7 +1087,7 @@ class UnifiedVideoSuiteWindow(QMainWindow):
         self.queue_page.add_files([path])
         self.open_queue_page()
         self.statusBar().showMessage(
-            f"Export saved to temp — added to compressor queue: {os.path.basename(path)}"
+            f"Export saved to temp — added to Parcel queue: {os.path.basename(path)}"
         )
 def _make_nav_icon(kind: str, size: int = 18) -> QIcon:
     pixmap = QPixmap(size, size)
@@ -1002,7 +1113,7 @@ def _make_nav_icon(kind: str, size: int = 18) -> QIcon:
         painter.drawRoundedRect(3, 4, 12, 10, 2, 2)
         painter.drawLine(6, 4, 6, 14)
         painter.drawLine(9, 7, 13, 7)
-    elif kind == "compressor":
+    elif kind == "parcel":
         painter.drawRect(4, 4, 10, 10)
         painter.drawLine(4, 7, 14, 7)
         painter.drawLine(4, 10, 14, 10)

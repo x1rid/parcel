@@ -251,10 +251,10 @@ class HomePage(QWidget):
 
         entries = []
         seen_paths = set()
-        default_folders = [Path.home() / "Videos", Path.home() / "Downloads", Path.home() / "Documents"]
-        for folder in default_folders:
+        watch_folders = [Path(folder) for folder in self.settings_manager.get_watch_folders()]
+        for folder in watch_folders:
             if folder.exists() and folder.is_dir():
-                for item in folder.iterdir():
+                for item in folder.rglob("*"):
                     if item.is_file() and item.suffix.lower() in VIDEO_EXTENSIONS and str(item) not in seen_paths:
                         seen_paths.add(str(item))
                         entries.append(self._describe_file(item))

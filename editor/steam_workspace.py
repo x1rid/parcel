@@ -6,19 +6,19 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QObject, QEvent, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QObject, QEvent, QThread, QSize
 from PyQt6.QtGui import QFont, QImage, QKeySequence, QShortcut, QIcon, QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QLabel, QMessageBox, 
     QToolButton, QVBoxLayout, QWidget, QToolTip, QDialog, QVBoxLayout as QVLayout,
-    QDialogButtonBox, QFormLayout, QComboBox, QCheckBox
+    QDialogButtonBox, QFormLayout, QComboBox, QCheckBox, QPushButton, QFrame
 )
 
 from .ffmpeg_editor_engine import FFmpegEditorEngine
 from .frame_engine import FrameAccurateEngine
 from .timeline import FrameTimeline
 from .player_widget import PreviewPlayerWidget
-from .timeline_widget import TimelineWidget
+from .timeline_widget import TimelineWidget, timecode_to_hmsf
 from .playback_controller import PlaybackController, PlaybackMode
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,12 +47,12 @@ class ExportWorker(QThread):
 
 
 class ThreeSecondTooltipFilter(QObject):
-    """Enforces clean typography design rules by introducing a mandatory 2500ms tooltip delay constraint."""
+    """Enforces clean typography design rules by introducing a mandatory 600ms tooltip delay constraint."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.setInterval(2500)
+        self.timer.setInterval(600)  # Polished tooltip delay: 600ms
         self.timer.timeout.connect(self._show_tooltip)
         self.current_widget = None
         self.tooltip_text = ""
@@ -78,6 +78,143 @@ class ThreeSecondTooltipFilter(QObject):
     def _show_tooltip(self):
         if self.current_widget and self.tooltip_text:
             QToolTip.showText(self.global_pos, self.tooltip_text, self.current_widget)
+
+
+class MetadataPanel(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("MetadataPanel")
+        self.setFixedWidth(240)
+        self.setStyleSheet("""
+            QFrame#MetadataPanel {
+                background-color: #171A21;
+                border: 1px solid #252932;
+                border-radius: 12px;
+            }
+            QLabel {
+                font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+                color: #7d848e;
+            }
+            QLabel#PanelHeader {
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            QLabel#PlayheadTime {
+                color: #ffffff;
+                font-size: 22px;
+                font-weight: 700;
+                font-family: Consolas, Monaco, monospace;
+            }
+            QLabel#PlayheadFrame {
+                color: #d4af37;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QLabel#MetaSectionTitle {
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            QLabel#MetaVal {
+                color: #ffffff;
+                font-size: 13px;
+                font-family: Consolas, Monaco, monospace;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
+        
+        # Cursor Section
+        cursor_layout = QVBoxLayout()
+        cursor_layout.setSpacing(2)
+        lbl_cur_title = QLabel("PLAYHEAD POSITION")
+        lbl_cur_title.setObjectName("PanelHeader")
+        self.lbl_time = QLabel("00:00:00:00")
+        self.lbl_time.setObjectName("PlayheadTime")
+        self.lbl_frame = QLabel("Frame 0")
+        self.lbl_frame.setObjectName("PlayheadFrame")
+        cursor_layout.addWidget(lbl_cur_title)
+        cursor_layout.addWidget(self.lbl_time)
+        cursor_layout.addWidget(self.lbl_frame)
+        layout.addLayout(cursor_layout)
+        
+        # Divider line
+        div1 = QFrame()
+        div1.setFrameShape(QFrame.Shape.HLine)
+        div1.setStyleSheet("background-color: #252932;")
+        layout.addWidget(div1)
+        
+        # Selection Section
+        sel_layout = QVBoxLayout()
+        sel_layout.setSpacing(6)
+        lbl_sel_title = QLabel("SELECTION RANGE")
+        lbl_sel_title.setObjectName("MetaSectionTitle")
+        self.lbl_sel_range = QLabel("No Selection")
+        self.lbl_sel_range.setObjectName("MetaVal")
+        
+        lbl_dur_title = QLabel("SELECTION DURATION")
+        lbl_dur_title.setObjectName("MetaSectionTitle")
+        self.lbl_sel_dur = QLabel("00:00:00:00")
+        self.lbl_sel_dur.setObjectName("MetaVal")
+        
+        sel_layout.addWidget(lbl_sel_title)
+        sel_layout.addWidget(self.lbl_sel_range)
+        sel_layout.addSpacing(4)
+        sel_layout.addWidget(lbl_dur_title)
+        sel_layout.addWidget(self.lbl_sel_dur)
+        layout.addLayout(sel_layout)
+        
+        # Divider line
+        div2 = QFrame()
+        div2.setFrameShape(QFrame.Shape.HLine)
+        div2.setStyleSheet("background-color: #252932;")
+        layout.addWidget(div2)
+        
+        # Project Total info
+        proj_layout = QVBoxLayout()
+        proj_layout.setSpacing(6)
+        
+        lbl_orig_title = QLabel("ORIGINAL DURATION")
+        lbl_orig_title.setObjectName("MetaSectionTitle")
+        self.lbl_orig_dur = QLabel("00:00:00:00")
+        self.lbl_orig_dur.setObjectName("MetaVal")
+        
+        lbl_edit_title = QLabel("EDITED EXPORT DURATION")
+        lbl_edit_title.setObjectName("MetaSectionTitle")
+        self.lbl_edit_dur = QLabel("00:00:00:00")
+        self.lbl_edit_dur.setObjectName("MetaVal")
+        
+        proj_layout.addWidget(lbl_orig_title)
+        proj_layout.addWidget(self.lbl_orig_dur)
+        proj_layout.addSpacing(4)
+        proj_layout.addWidget(lbl_edit_title)
+        proj_layout.addWidget(self.lbl_edit_dur)
+        layout.addLayout(proj_layout)
+        
+        layout.addStretch(1)
+        
+    def update_cursor(self, timecode: str, frame: int) -> None:
+        self.lbl_time.setText(timecode)
+        self.lbl_frame.setText(f"Frame {frame}")
+        
+    def update_selection(self, start_tc: str, end_tc: str, dur_tc: str) -> None:
+        if start_tc and end_tc:
+            self.lbl_sel_range.setText(f"{start_tc}\n→ {end_tc}")
+            self.lbl_sel_dur.setText(dur_tc)
+        else:
+            self.lbl_sel_range.setText("No Selection")
+            self.lbl_sel_dur.setText("00:00:00:00")
+            
+    def update_project(self, orig_tc: str, edit_tc: str) -> None:
+        self.lbl_orig_dur.setText(orig_tc)
+        self.lbl_edit_dur.setText(edit_tc)
 
 
 # Vector Painters
@@ -163,6 +300,12 @@ class SteamStyleEditorWidget(QWidget):
     def __init__(self, parent=None, on_export_complete_callback=None):
         super().__init__(parent)
         self.setObjectName("SteamStyleEditorWidget")
+        self.setStyleSheet("""
+            QWidget#SteamStyleEditorWidget {
+                background-color: #0F1115;
+                font-family: 'Inter', 'Segoe UI Variable', 'SF Pro', sans-serif;
+            }
+        """)
         self.on_export_complete_callback = on_export_complete_callback
         
         self.timeline = FrameTimeline(total_frames=0, fps=25.0)
@@ -184,49 +327,98 @@ class SteamStyleEditorWidget(QWidget):
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
 
-        # 1. Main Player
+        # 1. Video Preview & Metadata Panel side-by-side
+        preview_row = QHBoxLayout()
+        preview_row.setSpacing(16)
+
         self.player_widget = PreviewPlayerWidget(self.playback_controller)
         self.player_widget.setMinimumHeight(340)
-        layout.addWidget(self.player_widget, stretch=5)
+        preview_row.addWidget(self.player_widget, stretch=4)
 
-        # 2. Toolbar Frame
-        action_row = QHBoxLayout()
-        action_row.setSpacing(12)
-        action_row.addStretch(1)
-
-        self.btn_prev = self._make_icon_button("Previous Frame (Left)", _draw_prev)
-        self.btn_play = self._make_icon_button("Play / Pause (Space)", _draw_play_pause)
-        self.btn_next = self._make_icon_button("Next Frame (Right)", _draw_next)
-        self.btn_replay = self._make_icon_button("Replay Edited Timeline", _draw_replay)
+        self.meta_panel = MetadataPanel()
+        preview_row.addWidget(self.meta_panel, stretch=1)
         
-        self.btn_segment = self._make_icon_button("Create Segment", _draw_segment)
-        self.btn_mark_in = self._make_icon_button("Mark In", _draw_mark_in)
-        self.btn_mark_out = self._make_icon_button("Mark Out", _draw_mark_out)
-        self.btn_capture = self._make_icon_button("Save Current Frame", _draw_capture)
-        self.btn_export = self._make_icon_button("Export Video", _draw_export)
+        layout.addLayout(preview_row, stretch=4)
 
-        action_row.addWidget(self.btn_prev)
-        action_row.addWidget(self.btn_play)
-        action_row.addWidget(self.btn_next)
-        action_row.addSpacing(15)
-        action_row.addWidget(self.btn_replay)
-        action_row.addSpacing(15)
-        action_row.addWidget(self.btn_segment)
-        action_row.addWidget(self.btn_mark_in)
-        action_row.addWidget(self.btn_mark_out)
-        action_row.addWidget(self.btn_capture)
-        action_row.addSpacing(15)
-        action_row.addWidget(self.btn_export)
-        
-        action_row.addStretch(1)
-        layout.addLayout(action_row)
+        # 2. Playback Controls (Play and Replay have equal 64x64 emphasis)
+        playback_row = QHBoxLayout()
+        playback_row.setSpacing(24)  # Increased spacing between buttons
+        playback_row.addStretch(1)
+
+        self.btn_prev = self._make_icon_button("Previous Frame (Left)", _draw_prev, 48)
+        self.btn_play = self._make_icon_button("Play / Pause (Space)", _draw_play_pause, 64)
+        self.btn_next = self._make_icon_button("Next Frame (Right)", _draw_next, 48)
+        self.btn_replay = self._make_icon_button("Replay Selection", _draw_replay, 64)
+
+        playback_row.addWidget(self.btn_prev)
+        playback_row.addWidget(self.btn_play)
+        playback_row.addWidget(self.btn_next)
+        playback_row.addSpacing(16)
+        playback_row.addWidget(self.btn_replay)
+        playback_row.addStretch(1)
+        layout.addLayout(playback_row)
 
         # 3. Timeline
         self.timeline_widget = TimelineWidget(self.timeline)
-        layout.addWidget(self.timeline_widget, stretch=1)
+        layout.addWidget(self.timeline_widget, stretch=2)
+
+        # 4. Editing Controls & Project Info
+        edit_row = QHBoxLayout()
+        edit_row.setSpacing(12)
+        
+        self.btn_segment = self._make_icon_button("Create Segment", _draw_segment, 48)
+        self.btn_mark_in = self._make_icon_button("Mark In", _draw_mark_in, 48)
+        self.btn_mark_out = self._make_icon_button("Mark Out", _draw_mark_out, 48)
+        self.btn_capture = self._make_icon_button("Save Current Frame", _draw_capture, 48)
+        
+        edit_row.addWidget(self.btn_segment)
+        edit_row.addWidget(self.btn_mark_in)
+        edit_row.addWidget(self.btn_mark_out)
+        edit_row.addWidget(self.btn_capture)
+        edit_row.addStretch(1)
+        
+        # Project Info labels (dimmed metadata footer)
+        self.info_original = QLabel("Original: --")
+        self.info_edited = QLabel("Edited: --")
+        self.info_original.setStyleSheet("color: #7d848e; font-size: 13px;")
+        self.info_edited.setStyleSheet("color: #7d848e; font-size: 13px;")
+        
+        edit_row.addWidget(self.info_original)
+        edit_row.addSpacing(12)
+        edit_row.addWidget(self.info_edited)
+        
+        layout.addLayout(edit_row)
+
+        # 5. Export Button (Hero - reduced height to 48px)
+        self.btn_export = QPushButton("  EXPORT")
+        self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_export.setFixedHeight(48)  # Reduced by ~25% from 64
+        self.btn_export.setStyleSheet("""
+            QPushButton {
+                background-color: #d4af37;
+                color: #0F1115;
+                border-radius: 8px;
+                font-size: 16px;
+                font-weight: 700;
+                letter-spacing: 1px;
+            }
+            QPushButton:hover {
+                background-color: #e5c354;
+            }
+            QPushButton:pressed {
+                background-color: #c29f2e;
+            }
+            QPushButton:disabled {
+                background-color: #252932;
+                color: #7d848e;
+            }
+        """)
+        self.btn_export.setIcon(_make_vector_icon(24, _draw_export))
+        self.btn_export.setIconSize(QSize(24, 24))
+        layout.addWidget(self.btn_export)
 
         # Connections
         self.btn_prev.clicked.connect(lambda: self.step_frame(-1))
@@ -241,39 +433,46 @@ class SteamStyleEditorWidget(QWidget):
 
         self.player_widget.frameChanged.connect(self._sync_frame)
         self.player_widget.playbackFinished.connect(self._on_playback_finished)
-        self.timeline_widget.cursorFrameChanged.connect(self.scrub_to_frame)
         
-        # Connect timeline widget signals
-        self.timeline_widget.removeRequested.connect(self.remove_timeline_range)
-        self.timeline_widget.segmentRequested.connect(self.create_segment_range)
-        self.timeline_widget.replayRequested.connect(self.replay_range)
+        self.timeline_widget.cursorFrameChanged.connect(self.scrub_to_frame)
+        self.timeline_widget.selectionChanged.connect(self._on_timeline_selection_changed)
+        
+        # Connect timeline header toolbar signals
+        self.timeline_widget.deleteRequested.connect(self.delete_selected_segment)
+        self.timeline_widget.replayRequested.connect(self.replay_selected_segment)
+        self.timeline_widget.saveFrameRequested.connect(self.player_widget.save_current_frame)
+        self.timeline_widget.splitRequested.connect(self.split_selected_segment)
+        self.timeline_widget.duplicateRequested.connect(self.duplicate_selected_segment)
+        self.timeline_widget.undoRequested.connect(self.undo)
+        self.timeline_widget.redoRequested.connect(self.redo)
 
-    def _make_icon_button(self, tooltip: str, draw_func) -> QToolButton:
+    def _make_icon_button(self, tooltip: str, draw_func, size: int = 40) -> QToolButton:
         button = QToolButton()
-        button.setIcon(_make_vector_icon(24, draw_func))
+        icon_size = size // 2 + 4
+        button.setIcon(_make_vector_icon(icon_size, draw_func))
         button.setToolTip(tooltip)
         button.installEventFilter(self.tooltip_filter)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        button.setFixedSize(40, 40)
+        button.setFixedSize(size, size)
         button.setStyleSheet("""
             QToolButton {
-                border-radius: 6px;
-                background-color: transparent;
+                border-radius: 8px;
+                background-color: #171A21;
                 color: #ffffff;
-                border: 1px solid transparent;
+                border: 1px solid #252932;
             }
             QToolButton:hover {
-                background-color: #1a1a1a;
-                border-color: #27272a;
+                background-color: #252932;
+                border-color: #3b4252;
             }
             QToolButton:pressed {
                 background-color: #000000;
-                border-color: #ffffff;
+                border-color: #d4af37;
             }
             QToolButton:disabled {
                 color: #7d848e;
-                background-color: #030303;
+                background-color: #0F1115;
             }
         """)
         return button
@@ -298,12 +497,14 @@ class SteamStyleEditorWidget(QWidget):
     def _sync_frame(self, frame_index: int) -> None:
         self.timeline.set_cursor(frame_index)
         self.timeline_widget.set_cursor_frame(frame_index)
+        self._update_meta_panel_playhead(frame_index)
 
     def scrub_to_frame(self, frame_index: int) -> None:
         if not self.frame_engine:
             return
         self.player_widget.seek_to_frame(frame_index)
         self.timeline.set_cursor(frame_index)
+        self._update_meta_panel_playhead(frame_index)
 
     def toggle_playback(self) -> None:
         if not self.frame_engine:
@@ -327,6 +528,7 @@ class SteamStyleEditorWidget(QWidget):
         self.player_widget.set_engine(self.frame_engine)
         self.player_widget.set_media_source(file_path)
         self.scrub_to_frame(0)
+        self._refresh_views()
         self._save_session()
 
     # Core logic hooks (Snapshots, Undo, Export) mirror previous configuration
@@ -349,6 +551,16 @@ class SteamStyleEditorWidget(QWidget):
     def _refresh_views(self) -> None:
         self.timeline_widget.canvas.update()
         self.timeline_widget.refresh_state()
+        
+        # Update info labels
+        if self.frame_engine:
+            original_duration = max(0, self.frame_engine.total_frames / max(self.frame_engine.fps, 1.0))
+            self.info_original.setText(f"Original: {self._fmt_duration(original_duration)}")
+        if hasattr(self.timeline, "flatten_layers"):
+            edited_duration = sum(seg.duration_seconds for seg in self.timeline.flatten_layers())
+            self.info_edited.setText(f"Edited: {self._fmt_duration(edited_duration)}")
+            
+        self._update_meta_panel_project()
         self._save_session()
         
     def export_trimmed(self) -> None:
@@ -358,18 +570,23 @@ class SteamStyleEditorWidget(QWidget):
             QMessageBox.information(self, "No segments", "Create at least one segment before exporting.")
             return
         dialog = QDialog(self)
-        dialog.setWindowTitle("Export")
+        dialog.setWindowTitle("Export Summary")
         layout = QVLayout(dialog)
         form = QFormLayout()
         layout.addLayout(form)
         original = max(0, self.frame_engine.total_frames / max(self.frame_engine.fps, 1.0)) if self.frame_engine else 0
         edited = sum(seg.duration_seconds for seg in self.timeline.flatten_layers()) if hasattr(self.timeline, "flatten_layers") else 0
-        removed = max(0, original - edited)
-        form.addRow("Edited Duration", QLabel(self._fmt_duration(edited)))
-        form.addRow("Original Duration", QLabel(self._fmt_duration(original)))
-        form.addRow("Removed", QLabel(self._fmt_duration(removed)))
+        
+        # Estimate size (rough rule of thumb: ~5 MB / minute for 1080p medium quality, or 80kbps per second)
+        estimated_mb = edited * (80.0 / 1024.0) 
+        
+        summary_label = QLabel(f"Original: {self._fmt_duration(original)}  ↓  Edited: {self._fmt_duration(edited)}  ↓  Estimated: ~{estimated_mb:.1f} MB")
+        summary_label.setStyleSheet("font-size: 14px; font-weight: bold; margin-bottom: 12px;")
+        summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.insertWidget(0, summary_label)
+        
         mode = QComboBox()
-        mode.addItems(["Send To Compressor", "Direct Export"])
+        mode.addItems(["Send To Parcel", "Direct Export"])
         form.addRow("Mode", mode)
         direct_lossless = QCheckBox("Use lossless direct export naming")
         form.addRow("", direct_lossless)
@@ -380,7 +597,7 @@ class SteamStyleEditorWidget(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        if mode.currentText() == "Send To Compressor":
+        if mode.currentText() == "Send To Parcel":
             output_name = self.export_engine.build_export_name(self.current_video_path, mode="handoff")
             handoff_path = str(EXPORT_TEMP_DIR / output_name)
             EXPORT_TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -407,7 +624,7 @@ class SteamStyleEditorWidget(QWidget):
 
     def _run_export_job(self, input_path: str, output_path: str, mode: str) -> None:
         self.btn_export.setEnabled(False)
-        self.timeline_widget.state_label.setText("Exporting...")
+        self.info_edited.setText("Exporting...")
         worker = ExportWorker(self.export_engine, input_path, output_path, self.timeline, fast_mode=(mode != "direct"))
         self._export_worker = worker
         worker.finished_ok.connect(self._on_export_finished)
@@ -416,11 +633,11 @@ class SteamStyleEditorWidget(QWidget):
         worker.start()
 
     def _on_export_finished(self, output_path: str) -> None:
-        self.timeline_widget.state_label.setText("Ready")
+        self._refresh_views()
         self.exportedVideo.emit(output_path)
 
     def _on_export_failed(self, message: str) -> None:
-        self.timeline_widget.state_label.setText("Ready")
+        self._refresh_views()
         QMessageBox.critical(self, "Export failed", f"Export failed:\n{message}")
 
     def _save_session(self) -> None:
@@ -472,11 +689,11 @@ class SteamStyleEditorWidget(QWidget):
         self._refresh_views()
 
     def mark_in(self) -> None:
-        self.timeline.set_mark_in(self.player_widget.current_frame_index)
+        self.timeline_widget.canvas.set_mark_in_from_cursor()
         self._refresh_views()
 
     def mark_out(self) -> None:
-        self.timeline.set_mark_out(self.player_widget.current_frame_index)
+        self.timeline_widget.canvas.set_mark_out_from_cursor()
         self._refresh_views()
 
     def remove_timeline_range(self, start_frame: int, end_frame: int) -> None:
@@ -508,15 +725,82 @@ class SteamStyleEditorWidget(QWidget):
         self.player_widget.play_segment_ranges(ranges)
 
     def _delete_selection_or_segment(self) -> None:
-        # Check for active drag selection
-        sel = self.timeline_widget.canvas.resize_controller.get_selection_bounds()
-        if sel:
-            self.timeline_widget.selection_actions.removeRequested.emit()
+        self.delete_selected_segment()
+
+    def split_selected_segment(self) -> None:
+        seg_id = self.timeline_widget.canvas.selected_segment_id
+        if not seg_id:
             return
-            
-        # Otherwise cut at current playhead segment
-        seg = self.timeline.segment_at_frame(self.player_widget.current_frame_index)
-        if seg:
+        target_seg = None
+        for seg in self.timeline.keep_segments:
+            if seg.id == seg_id:
+                target_seg = seg
+                break
+        if target_seg:
+            idx = self.player_widget.current_frame_index
+            if target_seg.start_frame < idx < target_seg.end_frame:
+                self._snapshot()
+                self.timeline.split_at_frame(idx)
+                self._refresh_views()
+
+    def duplicate_selected_segment(self) -> None:
+        seg_id = self.timeline_widget.canvas.selected_segment_id
+        if not seg_id:
+            return
+        target_seg = None
+        for seg in self.timeline.keep_segments:
+            if seg.id == seg_id:
+                target_seg = seg
+                break
+        if target_seg:
             self._snapshot()
-            self.timeline.delete_segment(seg.id)
-            self._refresh_views()
+            dur = target_seg.end_frame - target_seg.start_frame
+            new_start = target_seg.end_frame
+            new_end = min(new_start + dur, self.timeline.total_frames)
+            if new_start < new_end:
+                self.timeline.add_segment(new_start, new_end)
+                self._refresh_views()
+
+    def delete_selected_segment(self) -> None:
+        seg_id = self.timeline_widget.canvas.selected_segment_id
+        if not seg_id:
+            return
+        self._snapshot()
+        self.timeline.delete_segment(seg_id)
+        self._refresh_views()
+
+    def replay_selected_segment(self) -> None:
+        seg_id = self.timeline_widget.canvas.selected_segment_id
+        if not seg_id:
+            return
+        target_seg = None
+        for seg in self.timeline.keep_segments:
+            if seg.id == seg_id:
+                target_seg = seg
+                break
+        if target_seg:
+            self.replay_range(target_seg.start_frame, target_seg.end_frame)
+
+    def _on_timeline_selection_changed(self) -> None:
+        sel = self.timeline_widget.canvas.resize_controller.get_selection_bounds()
+        if sel and sel[1] > sel[0]:
+            start_tc = timecode_to_hmsf(sel[0], self.timeline.fps)
+            end_tc = timecode_to_hmsf(sel[1], self.timeline.fps)
+            dur_tc = timecode_to_hmsf(sel[1] - sel[0], self.timeline.fps)
+            self.meta_panel.update_selection(start_tc, end_tc, dur_tc)
+        else:
+            self.meta_panel.update_selection("", "", "")
+
+    def _update_meta_panel_playhead(self, frame_index: int) -> None:
+        if self.timeline:
+            tc = timecode_to_hmsf(frame_index, self.timeline.fps)
+            self.meta_panel.update_cursor(tc, frame_index)
+
+    def _update_meta_panel_project(self) -> None:
+        if not self.timeline:
+            return
+        orig_tc = timecode_to_hmsf(self.timeline.total_frames, self.timeline.fps)
+        segments = self.timeline.flatten_layers() if hasattr(self.timeline, "flatten_layers") else self.timeline.keep_segments
+        total_edited = sum(seg.duration_frames for seg in segments)
+        edit_tc = timecode_to_hmsf(total_edited, self.timeline.fps)
+        self.meta_panel.update_project(orig_tc, edit_tc)
