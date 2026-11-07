@@ -1,0 +1,9 @@
+# Parcel - Python dependencies
+# Python >= 3.10 required (uses PEP 604 `X | Y` type unions at runtime)
+#
+# External system dependency (not installable via pip):
+#   FFmpeg + FFprobe must be on PATH, or configured in the app settings.
+
+PyQt6>=6.6          # QtCore, QtGui, QtWidgets, QtMultimedia
+av>=12.0            # PyAV - video/audio demuxing, decoding, encoding
+numpy>=1.24         # Frame buffers / pixel data
