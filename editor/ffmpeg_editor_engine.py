@@ -18,21 +18,34 @@ class FFmpegEditorEngine:
 
     def _run(self, args: List[str], cancel_event: threading.Event | None = None) -> None:
         process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        output_chunks: List[str] = []
+
+        # Drain the merged stdout/stderr pipe on a reader thread. Without this, FFmpeg
+        # blocks once the OS pipe buffer fills up and the export hangs forever.
+        def _drain() -> None:
+            if process.stdout:
+                for chunk in process.stdout:
+                    output_chunks.append(chunk)
+
+        reader = threading.Thread(target=_drain, daemon=True)
+        reader.start()
         try:
-            while True:
+            while process.poll() is None:
                 if cancel_event and cancel_event.is_set():
                     process.terminate()
                     raise RuntimeError("Export canceled.")
-                if process.poll() is not None:
-                    break
-                process.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            pass
+                try:
+                    process.wait(timeout=0.1)
+                except subprocess.TimeoutExpired:
+                    continue
         finally:
             if process.poll() is None:
                 process.wait()
+            reader.join(timeout=5)
         if process.returncode != 0:
-            raise subprocess.CalledProcessError(process.returncode, args)
+            raise subprocess.CalledProcessError(
+                process.returncode, args, output="".join(output_chunks)
+            )
 
     def _normalize_segments(self, timeline) -> List[Segment]:
         segments = timeline.flatten_layers() if hasattr(timeline, "flatten_layers") else list(timeline.keep_segments)

@@ -255,6 +255,19 @@ class ParcelWorkspaceShell(QMainWindow):
         self._select_tab(item)
         self.stack.setCurrentWidget(self.home_widget)
 
+    def open_editor_page(self) -> None:
+        key = "__editor__"
+        if key in self._workspaces:
+            self._select_existing_workspace(self._workspaces[key])
+            return
+        widget = SteamStyleEditorWidget()
+        record = WorkspaceRecord(path=key, kind="video", title="Editor", widget=widget)
+        self._workspaces[key] = record
+        self.stack.addWidget(widget)
+        item = self._add_tab("Editor", "video", key)
+        self._select_tab(item)
+        self.stack.setCurrentWidget(widget)
+
     def open_file(self, path: str) -> None:
         path = os.path.abspath(path)
         kind = _file_kind(path)
